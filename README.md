@@ -219,21 +219,6 @@ DeletionRequest
 └─ created_at, resolved_at
 ```
 
----
-
-## ♿ Accessibilité & UX
-
-- Responsive mobile-first (CSS Grid adaptatif)
-- Skip link pour navigation clavier
-- `aria-label`, `aria-labelledby`, `role="alert"`, `role="status"`, `role="progressbar"`
-- Balises sémantiques : `<main>`, `<section>`, `<article>`, `<nav>`, `<footer>`
-- Focus visible (outline violet)
-- Meta description, lang="fr"
-- Contrastes conformes WCAG
-- Formulaires avec labels explicites et `autoComplete`
-
----
-
 ## 🧪 Scénario de test recommandé
 
 1. Lance backend + frontend
@@ -252,32 +237,3 @@ DeletionRequest
 8. Admin : http://localhost:8000/admin (`admin / admin1234`) → approuver une demande
 
 ---
-
-## 🛠 Stack technique détaillée
-
-| Couche       | Techno                        |
-|--------------|-------------------------------|
-| Frontend     | React 18, Vite, React Router, Axios |
-| Backend      | Django 5.0, Django REST Framework |
-| Auth         | SimpleJWT (access 12h, refresh 7j) |
-| BDD          | SQLite (auto via migrations)  |
-| CORS         | django-cors-headers           |
-| Images       | Pillow                        |
-| Style        | CSS natif mobile-first (pas de framework UI) |
-
----
-
-## 📁 Git
-
-```bash
-cd smart_home_project
-git init
-git add .
-git commit -m "Initial commit — plateforme maison intelligente"
-git remote add origin <ton-repo>
-git push -u origin main
-```
-
----
-
-Bon projet et bonne soutenance ! 🚀
