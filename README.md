@@ -213,21 +213,6 @@ DeletionRequest
 └─ created_at, resolved_at
 ```
 
----
-
-## ♿ Accessibilité & UX
-
-- Responsive mobile-first (CSS Grid adaptatif)
-- Skip link pour navigation clavier
-- `aria-label`, `aria-labelledby`, `role="alert"`, `role="status"`, `role="progressbar"`
-- Balises sémantiques : `<main>`, `<section>`, `<article>`, `<nav>`, `<footer>`
-- Focus visible (outline violet)
-- Meta description, lang="fr"
-- Contrastes conformes WCAG
-- Formulaires avec labels explicites et `autoComplete`
-
----
-
 ## 🧪 Scénario de test recommandé
 
 1. Lance backend + frontend
