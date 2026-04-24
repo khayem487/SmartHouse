@@ -3,7 +3,7 @@ from django.http import HttpResponse
 from django.db.models import Sum, Q
 from django.utils import timezone
 from rest_framework import generics, viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -36,7 +36,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         user.save()
         Action.objects.create(user=user, action_type="login",
                               description="Connexion à la plateforme")
-        data["user"] = UserSerializer(user, context={"request": self.context.get("request")}).data
+        ctx = {"request": self.context.get("request")}
+        data["user"] = UserSerializer(user, context=ctx).data
         return data
 
 
@@ -95,11 +96,10 @@ def list_users(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def set_level(request):
-    """L'utilisateur choisit son niveau parmi ceux qu'il a débloqués."""
     target = request.data.get("level")
     u = request.user
     if not u.can_set_level(target):
-        return Response({"detail": f"Pas assez de points pour accéder au niveau '{target}'."},
+        return Response({"detail": f"Pas assez de points pour le niveau '{target}'."},
                         status=400)
     old = u.level
     u.level = target
@@ -138,7 +138,8 @@ class DeviceViewSet(viewsets.ModelViewSet):
     serializer_class = DeviceSerializer
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve"): return [AllowAny()]
+        # Liste publique (visiteur OK) ; détail réservé aux connectés
+        if self.action == "list": return [AllowAny()]
         return [IsAuthenticated()]
 
     def get_queryset(self):
@@ -157,13 +158,12 @@ class DeviceViewSet(viewsets.ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        if request.user.is_authenticated:
-            u = request.user
-            u.points = (u.points or 0) + 0.5
-            u.nb_actions = (u.nb_actions or 0) + 1
-            u.save()
-            Action.objects.create(user=u, action_type="consult", device=instance,
-                                  description=f"Consultation de {instance.name}")
+        u = request.user
+        u.points = (u.points or 0) + 0.5
+        u.nb_actions = (u.nb_actions or 0) + 1
+        u.save()
+        Action.objects.create(user=u, action_type="consult", device=instance,
+                              description=f"Consultation de {instance.name}")
         return Response(self.get_serializer(instance).data)
 
     def perform_create(self, serializer):
@@ -181,13 +181,29 @@ class DeviceViewSet(viewsets.ModelViewSet):
                               device=device, description=f"Modification de {device.name}")
 
     def destroy(self, request, *args, **kwargs):
-        # PDF §Gestion : l'utilisateur complexe DEMANDE la suppression, il ne supprime pas
+        # Seul un admin peut supprimer directement
         if not request.user.is_staff:
             return Response(
                 {"detail": "Vous devez créer une demande de suppression. "
                            "Seul l'administrateur peut supprimer directement."},
                 status=403)
+        device = self.get_object()
+        Action.objects.create(
+            user=request.user, action_type="update",
+            description=f"Suppression directe de {device.name} par l'admin")
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"], url_path="repair")
+    def repair(self, request, pk=None):
+        """Marque l'objet comme réparé (battery=100, last_maintenance=today)."""
+        device = self.get_object()
+        device.last_maintenance = timezone.now().date()
+        device.battery = 100
+        device.save()
+        Action.objects.create(
+            user=request.user, action_type="update", device=device,
+            description=f"Maintenance effectuée sur {device.name}")
+        return Response(DeviceSerializer(device).data)
 
 
 @api_view(["POST"])
@@ -207,21 +223,21 @@ def toggle_device(request, pk):
 
 
 # ============================================================
-# SERVICES (outils/services variés, PDF §Visualisation)
+# SERVICES
 # ============================================================
 class ServiceViewSet(viewsets.ModelViewSet):
     queryset = Service.objects.all()
     serializer_class = ServiceSerializer
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve"): return [AllowAny()]
+        if self.action == "list": return [AllowAny()]
         return [IsAuthenticated()]
 
     def get_queryset(self):
         qs = super().get_queryset()
         p = self.request.query_params
         if p.get("type"):   qs = qs.filter(type=p["type"])
-        if p.get("active") is not None:
+        if p.get("active") is not None and p.get("active") != "":
             qs = qs.filter(active=(p["active"].lower() == "true"))
         if p.get("q"):
             q = p["q"]
@@ -230,13 +246,12 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        if request.user.is_authenticated:
-            u = request.user
-            u.points = (u.points or 0) + 0.5
-            u.nb_actions = (u.nb_actions or 0) + 1
-            u.save()
-            Action.objects.create(user=u, action_type="consult",
-                                  description=f"Consultation du service {instance.name}")
+        u = request.user
+        u.points = (u.points or 0) + 0.5
+        u.nb_actions = (u.nb_actions or 0) + 1
+        u.save()
+        Action.objects.create(user=u, action_type="consult",
+                              description=f"Consultation du service {instance.name}")
         return Response(self.get_serializer(instance).data)
 
 
@@ -248,15 +263,47 @@ class DeletionRequestViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        # On n'affiche QUE les "pending" pour que les traitées disparaissent
         if self.request.user.is_staff:
-            return DeletionRequest.objects.all()
-        return DeletionRequest.objects.filter(requested_by=self.request.user)
+            return DeletionRequest.objects.filter(status="pending")
+        return DeletionRequest.objects.filter(
+            requested_by=self.request.user, status="pending")
 
     def perform_create(self, serializer):
         dr = serializer.save(requested_by=self.request.user)
         Action.objects.create(
             user=self.request.user, action_type="deletion_request", device=dr.device,
             description=f"Demande de suppression pour {dr.device.name}")
+
+    @action(detail=True, methods=["post"], url_path="approve")
+    def approve(self, request, pk=None):
+        """Admin approuve → supprime l'objet + marque la demande comme approuvée."""
+        if not request.user.is_staff:
+            return Response({"detail": "Admin uniquement"}, status=403)
+        dr = self.get_object()
+        if dr.status != "pending":
+            return Response({"detail": "Demande déjà traitée"}, status=400)
+        device_name = dr.device.name
+        dr.device.delete()
+        dr.status = "approved"
+        dr.resolved_at = timezone.now()
+        dr.save()
+        Action.objects.create(user=request.user, action_type="update",
+                              description=f"Suppression de {device_name} (approuvée)")
+        return Response({"detail": f"Objet {device_name} supprimé."})
+
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject(self, request, pk=None):
+        """Admin refuse la demande."""
+        if not request.user.is_staff:
+            return Response({"detail": "Admin uniquement"}, status=403)
+        dr = self.get_object()
+        if dr.status != "pending":
+            return Response({"detail": "Demande déjà traitée"}, status=400)
+        dr.status = "rejected"
+        dr.resolved_at = timezone.now()
+        dr.save()
+        return Response({"detail": "Demande refusée."})
 
 
 # ============================================================
@@ -272,7 +319,6 @@ def my_actions(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def global_history(request):
-    """Historique global des objets (PDF §Gestion)."""
     qs = Action.objects.filter(device__isnull=False)[:100]
     return Response(ActionSerializer(qs, many=True).data)
 
@@ -280,7 +326,6 @@ def global_history(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def maintenance_devices(request):
-    """Objets nécessitant une maintenance (PDF §Gestion)."""
     to_maintain = [d for d in Device.objects.all() if d.needs_maintenance()]
     return Response(DeviceSerializer(to_maintain, many=True).data)
 
@@ -312,7 +357,7 @@ def stats_summary(request):
 def export_devices_csv(request):
     response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = 'attachment; filename="objets_connectes.csv"'
-    response.write("\ufeff")  # BOM pour Excel FR
+    response.write("\ufeff")
     w = csv.writer(response, delimiter=";")
     w.writerow(["ID", "Nom", "Type", "Pièce", "Marque", "État",
                 "Batterie (%)", "Valeur", "Cible", "Début", "Fin"])

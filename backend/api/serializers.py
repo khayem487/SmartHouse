@@ -31,9 +31,9 @@ class UserSerializer(serializers.ModelSerializer):
                   "photo", "photo_url",
                   "level", "points", "max_level",
                   "nb_connexions", "nb_actions",
-                  "is_approved", "email_verified")
+                  "is_approved", "email_verified", "is_staff")
         read_only_fields = ("level", "points", "nb_connexions", "nb_actions",
-                            "is_approved", "email_verified", "max_level")
+                            "is_approved", "email_verified", "max_level", "is_staff")
 
     def get_photo_url(self, obj):
         request = self.context.get("request")

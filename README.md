@@ -102,13 +102,19 @@ Frontend : http://127.0.0.1:5173
 - Ajouter un objet connecté (avec horaires de fonctionnement + catégorie)
 - Modifier un objet (tous ses attributs + horaires)
 - **Demander la suppression d'un objet** (envoie une requête à l'admin)
-- Suivi de ses propres demandes de suppression (statut : en attente / approuvée / refusée)
+- Suivi de ses propres demandes de suppression (seules celles en attente sont listées)
 - Activer / désactiver un objet (toggle)
 - **Détection automatique des objets nécessitant maintenance** (batterie < 20% ou > 6 mois sans révision)
-- Page Maintenance dédiée
+- Page Maintenance dédiée avec **bouton "Marquer comme réparé"** (recharge batterie + datation maintenance)
 - **Historique global** des actions sur les objets (tous utilisateurs confondus)
 - Statistiques : nombre d'objets, actifs, consommation kWh, répartition par type et pièce
 - **Export CSV** des objets et de la consommation
+
+### Module Administration (admin uniquement)
+- Page **"🛡 Gérer demandes"** (accessible via le menu Gestion)
+- Boutons **"Supprimer"** (approuve + supprime l'objet) et **"Refuser"** (conserve l'objet)
+- Une fois traitée, la demande disparaît pour l'admin ET l'utilisateur
+- **Suppression directe** depuis la page détail d'un objet (bouton "Supprimer (admin)" au lieu de "Demander")
 
 ### Gestion par l'administrateur (Django Admin)
 - Approuver/refuser les demandes de suppression (actions groupées)
@@ -213,6 +219,21 @@ DeletionRequest
 └─ created_at, resolved_at
 ```
 
+---
+
+## ♿ Accessibilité & UX
+
+- Responsive mobile-first (CSS Grid adaptatif)
+- Skip link pour navigation clavier
+- `aria-label`, `aria-labelledby`, `role="alert"`, `role="status"`, `role="progressbar"`
+- Balises sémantiques : `<main>`, `<section>`, `<article>`, `<nav>`, `<footer>`
+- Focus visible (outline violet)
+- Meta description, lang="fr"
+- Contrastes conformes WCAG
+- Formulaires avec labels explicites et `autoComplete`
+
+---
+
 ## 🧪 Scénario de test recommandé
 
 1. Lance backend + frontend
@@ -246,3 +267,17 @@ DeletionRequest
 
 ---
 
+## 📁 Git
+
+```bash
+cd smart_home_project
+git init
+git add .
+git commit -m "Initial commit — plateforme maison intelligente"
+git remote add origin <ton-repo>
+git push -u origin main
+```
+
+---
+
+Bon projet et bonne soutenance ! 🚀

@@ -18,33 +18,39 @@ import Maintenance from "./pages/Maintenance";
 import History from "./pages/History";
 import Stats from "./pages/Stats";
 import MyRequests from "./pages/MyRequests";
+import AdminRequests from "./pages/AdminRequests";
 
 export default function App() {
   return (
     <>
       <Navbar />
       <Routes>
-        {/* Module Information (Visiteur) */}
-        <Route path="/"            element={<Home />} />
-        <Route path="/login"       element={<Login />} />
-        <Route path="/register"    element={<Register />} />
-        <Route path="/devices"     element={<Devices />} />
-        <Route path="/devices/:id" element={<DeviceDetail />} />
-        <Route path="/services"    element={<Services />} />
-        <Route path="/services/:id" element={<ServiceDetail />} />
+        {/* Module Information */}
+        <Route path="/"             element={<Home />} />
+        <Route path="/login"        element={<Login />} />
+        <Route path="/register"     element={<Register />} />
+        <Route path="/devices"      element={<Devices />} />
+        <Route path="/services"     element={<Services />} />
 
-        {/* Module Visualisation (Débutant/Intermédiaire) */}
+        {/* Détail = CONNECTÉ OBLIGATOIRE (visiteur bloqué) */}
+        <Route path="/devices/:id"   element={<ProtectedRoute><DeviceDetail /></ProtectedRoute>} />
+        <Route path="/services/:id"  element={<ProtectedRoute><ServiceDetail /></ProtectedRoute>} />
+
+        {/* Module Visualisation */}
         <Route path="/dashboard"    element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/profile"      element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/level"        element={<ProtectedRoute><LevelChange /></ProtectedRoute>} />
         <Route path="/my-requests"  element={<ProtectedRoute><MyRequests /></ProtectedRoute>} />
 
-        {/* Module Gestion (Avancé/Expert) */}
+        {/* Module Gestion */}
         <Route path="/devices/add"       element={<ProtectedRoute requireAdvanced><AddDevice /></ProtectedRoute>} />
         <Route path="/devices/:id/edit"  element={<ProtectedRoute requireAdvanced><EditDevice /></ProtectedRoute>} />
         <Route path="/maintenance"       element={<ProtectedRoute requireAdvanced><Maintenance /></ProtectedRoute>} />
         <Route path="/history"           element={<ProtectedRoute requireAdvanced><History /></ProtectedRoute>} />
         <Route path="/stats"             element={<ProtectedRoute requireAdvanced><Stats /></ProtectedRoute>} />
+
+        {/* Admin */}
+        <Route path="/admin-requests" element={<ProtectedRoute><AdminRequests /></ProtectedRoute>} />
       </Routes>
       <footer>
         <p>Maison Intelligente — Projet CY Tech ING1 2025-2026</p>

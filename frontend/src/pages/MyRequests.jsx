@@ -12,12 +12,12 @@ export default function MyRequests() {
     <main className="container" id="main">
       <h1>Mes demandes de suppression</h1>
       <p>
-        Retrouvez ici l'état de toutes vos demandes de suppression d'objets.
-        L'administrateur les traite depuis son panneau.
+        Retrouvez ici toutes vos demandes en cours de traitement.
+        Les demandes traitées (approuvées ou refusées) disparaissent automatiquement.
       </p>
 
       {requests.length === 0 ? (
-        <div className="alert info">Aucune demande pour le moment.</div>
+        <div className="alert info">Aucune demande en cours.</div>
       ) : (
         <div className="table-wrapper">
           <table>
@@ -27,7 +27,6 @@ export default function MyRequests() {
                 <th>Motif</th>
                 <th>Statut</th>
                 <th>Date demande</th>
-                <th>Date traitement</th>
               </tr>
             </thead>
             <tbody>
@@ -35,11 +34,8 @@ export default function MyRequests() {
                 <tr key={r.id}>
                   <td>{r.device_name}</td>
                   <td>{r.reason || "—"}</td>
-                  <td>
-                    <span className={"badge " + r.status}>{r.status_display}</span>
-                  </td>
+                  <td><span className={"badge " + r.status}>{r.status_display}</span></td>
                   <td>{new Date(r.created_at).toLocaleString("fr-FR")}</td>
-                  <td>{r.resolved_at ? new Date(r.resolved_at).toLocaleString("fr-FR") : "—"}</td>
                 </tr>
               ))}
             </tbody>

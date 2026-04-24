@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import API, { API_URL } from "../api";
+import API from "../api";
 
 const LEVEL_LABEL = {
   debutant: "Débutant", intermediaire: "Intermédiaire",
@@ -16,12 +16,11 @@ export default function Profile() {
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
-  // Change password
   const [showPwd, setShowPwd] = useState(false);
   const [pwdForm, setPwdForm] = useState({ old_password: "", new_password: "" });
 
-  // Photo upload
   const [photoFile, setPhotoFile] = useState(null);
+  const [photoVer, setPhotoVer] = useState(Date.now());
 
   const load = () => {
     API.get("/profile/").then((r) => {
@@ -61,15 +60,21 @@ export default function Profile() {
   const uploadPhoto = async (e) => {
     e.preventDefault();
     if (!photoFile) return;
-    const fd = new FormData();
-    fd.append("photo", photoFile);
-    await API.put("/profile/", fd, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    setMsg("Photo mise à jour ✔");
-    setPhotoFile(null);
-    load();
-    setTimeout(() => setMsg(""), 2500);
+    setErr(""); setMsg("");
+    try {
+      const fd = new FormData();
+      fd.append("photo", photoFile);
+      await API.put("/profile/", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setMsg("Photo mise à jour ✔");
+      setPhotoFile(null);
+      setPhotoVer(Date.now()); // casse le cache
+      load();
+      setTimeout(() => setMsg(""), 2500);
+    } catch (ex) {
+      setErr("Erreur upload photo : " + JSON.stringify(ex.response?.data || ex.message));
+    }
   };
 
   const changePwd = async (e) => {
@@ -86,20 +91,24 @@ export default function Profile() {
     }
   };
 
+  // URL photo avec timestamp anti-cache
+  const photoSrc = me.photo_url ? `${me.photo_url}?v=${photoVer}` : null;
+
   return (
     <main className="container" id="main">
       <h1>Mon profil</h1>
       {msg && <div className="alert success" role="status">{msg}</div>}
       {err && <div className="alert error" role="alert">{err}</div>}
 
-      {/* --- Photo --- */}
       <section aria-labelledby="photo-t">
         <h2 id="photo-t">Photo</h2>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
-          {me.photo_url ? (
-            <img src={me.photo_url} alt={`Photo de ${me.username}`} className="profile-photo" />
+          {photoSrc ? (
+            <img src={photoSrc} alt={`Photo de ${me.username}`} className="profile-photo" />
           ) : (
-            <div className="profile-photo" aria-label="Pas de photo" />
+            <div className="profile-photo" aria-label="Pas de photo"
+                 style={{ display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: "2rem", color: "#999" }}>👤</div>
           )}
           <form onSubmit={uploadPhoto} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input type="file" accept="image/*" aria-label="Choisir une photo"
@@ -109,7 +118,6 @@ export default function Profile() {
         </div>
       </section>
 
-      {/* --- Infos --- */}
       <section aria-labelledby="info-t">
         <h2 id="info-t">Mes informations</h2>
         {!edit ? (
@@ -169,7 +177,6 @@ export default function Profile() {
         )}
       </section>
 
-      {/* --- Change password --- */}
       {showPwd && (
         <form className="form" onSubmit={changePwd}>
           <h3>Changer de mot de passe</h3>
@@ -185,13 +192,13 @@ export default function Profile() {
         </form>
       )}
 
-      {/* --- Autres membres --- */}
       <section aria-labelledby="others-t">
         <h2 id="others-t">Autres membres de la maison</h2>
         <div className="cards">
           {others.map((u) => (
             <article key={u.id} className="card">
-              {u.photo_url && <img src={u.photo_url} alt={`Photo de ${u.username}`}
+              {u.photo_url && <img src={`${u.photo_url}?v=${photoVer}`}
+                                   alt={`Photo de ${u.username}`}
                                    className="profile-photo" style={{ width: 60, height: 60 }} />}
               <h3>{u.username}</h3>
               <p>{u.first_name} {u.last_name}</p>

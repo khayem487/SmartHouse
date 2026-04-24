@@ -132,6 +132,15 @@ class Command(BaseCommand):
                 Action.objects.create(user=u, action_type="login",
                                       description="Connexion à la plateforme")
 
+        # --- Une demande de suppression de démo (pour tester la page admin) ---
+        from api.models import DeletionRequest
+        DeletionRequest.objects.create(
+            device=devices[4],  # Aspirateur robot
+            requested_by=users[1],  # bob
+            reason="Batterie trop faible, on va le remplacer.",
+            status="pending",
+        )
+
         # --- Superuser ---
         if not User.objects.filter(username="admin").exists():
             User.objects.create_superuser(

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import API from "../api";
+import API, { isLoggedIn } from "../api";
 
 const TYPES = [
   ["thermostat","Thermostat"],["camera","Caméra"],["alarme","Alarme"],
@@ -18,6 +18,7 @@ export default function Devices() {
   const [filters, setFilters] = useState({
     type: "", room: "", category: "", status: "", q: "",
   });
+  const logged = isLoggedIn();
 
   useEffect(() => {
     API.get("/rooms/").then((r) => setRooms(r.data));
@@ -32,9 +33,32 @@ export default function Devices() {
 
   const set = (k, v) => setFilters({ ...filters, [k]: v });
 
+  const CardContent = ({ d }) => (
+    <>
+      <h3>{d.name}</h3>
+      <p><strong>Type :</strong> {d.type_display}</p>
+      <p><strong>Pièce :</strong> {d.room_name || "—"}</p>
+      <p><strong>Marque :</strong> {d.brand || "—"}</p>
+      <p><strong>Batterie :</strong> {d.battery}%</p>
+      <p>
+        <span className={"badge " + d.status}>{d.status_display}</span>
+        {d.needs_maintenance && (
+          <span className="badge warning" style={{ marginLeft: 5 }}>⚠ maintenance</span>
+        )}
+      </p>
+    </>
+  );
+
   return (
     <main className="container" id="main">
       <h1>Objets connectés</h1>
+      {!logged && (
+        <div className="alert info">
+          🔒 Vous êtes en mode visiteur. <Link to="/login">Connectez-vous</Link>{" "}
+          ou <Link to="/register">inscrivez-vous</Link> pour consulter les détails
+          d'un objet.
+        </div>
+      )}
 
       <section aria-label="Filtres de recherche">
         <div className="filters">
@@ -65,19 +89,20 @@ export default function Devices() {
 
       <div className="cards">
         {devices.map((d) => (
-          <Link key={d.id} to={`/devices/${d.id}`} className="card">
-            <h3>{d.name}</h3>
-            <p><strong>Type :</strong> {d.type_display}</p>
-            <p><strong>Pièce :</strong> {d.room_name || "—"}</p>
-            <p><strong>Marque :</strong> {d.brand || "—"}</p>
-            <p><strong>Batterie :</strong> {d.battery}%</p>
-            <p>
-              <span className={"badge " + d.status}>{d.status_display}</span>
-              {d.needs_maintenance && (
-                <span className="badge warning" style={{ marginLeft: 5 }}>⚠ maintenance</span>
-              )}
-            </p>
-          </Link>
+          logged ? (
+            <Link key={d.id} to={`/devices/${d.id}`} className="card">
+              <CardContent d={d} />
+            </Link>
+          ) : (
+            <article key={d.id} className="card"
+                     style={{ cursor: "not-allowed", opacity: 0.85 }}
+                     aria-label="Détails réservés aux membres connectés">
+              <CardContent d={d} />
+              <p style={{ fontSize: "0.8rem", color: "#999", marginTop: 5 }}>
+                🔒 Connectez-vous pour voir les détails
+              </p>
+            </article>
+          )
         ))}
       </div>
     </main>

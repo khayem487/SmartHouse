@@ -19,16 +19,19 @@ export default function Dashboard() {
 
   useEffect(() => {
     refreshUser().then(setProfile);
-    API.get("/actions/me/").then((r) => setActions(r.data));
+    API.get("/actions/me/").then((r) => {
+      // Dédoublonnage par id au cas où
+      const unique = Array.from(new Map(r.data.map((a) => [a.id, a])).values());
+      unique.sort((a, b) => new Date(b.date) - new Date(a.date));
+      setActions(unique);
+    });
   }, []);
 
   if (!profile) return <main className="container"><p>Chargement…</p></main>;
 
   const pts = profile.points || 0;
   const nextLevel = LEVEL_THRESHOLDS.find((l) => l.min > pts);
-  const progress = nextLevel
-    ? Math.min(100, (pts / nextLevel.min) * 100)
-    : 100;
+  const progress = nextLevel ? Math.min(100, (pts / nextLevel.min) * 100) : 100;
 
   return (
     <main className="container" id="main">
@@ -64,41 +67,19 @@ export default function Dashboard() {
           <div className="level-bar-fill" style={{ width: progress + "%" }} />
         </div>
         {nextLevel ? (
-          <p>Encore <strong>{(nextLevel.min - pts).toFixed(2)}</strong> points pour atteindre <strong>{nextLevel.name}</strong>.</p>
+          <p>Encore <strong>{(nextLevel.min - pts).toFixed(2)}</strong> points
+             pour atteindre <strong>{nextLevel.name}</strong>.</p>
         ) : (
           <p>🏆 Niveau maximum atteint !</p>
         )}
         <Link to="/level" className="btn">Changer de niveau</Link>
       </section>
 
-      <section aria-labelledby="levels-title">
-        <h2 id="levels-title">Tableau des niveaux</h2>
-        <div className="table-wrapper">
-          <table>
-            <thead>
-              <tr><th>Niveau</th><th>Points requis</th><th>Statut</th><th>Modules</th></tr>
-            </thead>
-            <tbody>
-              {LEVEL_THRESHOLDS.map((l) => (
-                <tr key={l.key}>
-                  <td>{l.name}</td>
-                  <td>{l.min}</td>
-                  <td>{pts >= l.min ? "✔ débloqué" : "🔒 verrouillé"}</td>
-                  <td>
-                    {l.key === "debutant" && "Information, Visualisation"}
-                    {l.key === "intermediaire" && "Information, Visualisation"}
-                    {l.key === "avance" && "+ Gestion"}
-                    {l.key === "expert" && "+ Gestion étendu"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <section aria-labelledby="hist-title">
         <h2 id="hist-title">Historique récent</h2>
+        <p style={{ fontSize: "0.85rem", color: "#666" }}>
+          {actions.length} action(s) au total — 15 plus récentes affichées.
+        </p>
         {actions.length === 0 ? (
           <p>Aucune action récente.</p>
         ) : (

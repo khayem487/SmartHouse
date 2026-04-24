@@ -40,4 +40,9 @@ export const isAdvanced = () => {
   return u && (u.level === "avance" || u.level === "expert");
 };
 
+export const isAdmin = () => {
+  const u = getUser();
+  return u && (u.is_staff === true || u.username === "admin");
+};
+
 export default API;
