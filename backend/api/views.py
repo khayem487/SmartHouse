@@ -284,10 +284,14 @@ class DeletionRequestViewSet(viewsets.ModelViewSet):
         if dr.status != "pending":
             return Response({"detail": "Demande déjà traitée"}, status=400)
         device_name = dr.device.name
-        dr.device.delete()
+        device_to_delete = dr.device
+        # Important : on marque la demande AVANT de supprimer le device,
+        # car la cascade supprimerait aussi la demande sinon.
         dr.status = "approved"
         dr.resolved_at = timezone.now()
+        dr.device = None  # détache la FK avant suppression
         dr.save()
+        device_to_delete.delete()
         Action.objects.create(user=request.user, action_type="update",
                               description=f"Suppression de {device_name} (approuvée)")
         return Response({"detail": f"Objet {device_name} supprimé."})

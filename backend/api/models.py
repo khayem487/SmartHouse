@@ -150,7 +150,8 @@ class Service(models.Model):
 class DeletionRequest(models.Model):
     STATUS_CHOICES = [("pending", "En attente"), ("approved", "Approuvée"),
                       ("rejected", "Refusée")]
-    device = models.ForeignKey(Device, on_delete=models.CASCADE)
+    device = models.ForeignKey(Device, on_delete=models.SET_NULL,
+                               null=True, blank=True)
     requested_by = models.ForeignKey(User, on_delete=models.CASCADE,
                                      related_name="deletion_requests")
     reason = models.TextField(blank=True)
