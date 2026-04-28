@@ -1,4 +1,4 @@
-# 🏠 Maison Intelligente — Plateforme Web
+# Maison Intelligente — Plateforme Web
 
 Projet CY Tech ING1 2025-2026.
 Plateforme complète de gestion d'une maison intelligente : objets connectés,
@@ -8,7 +8,7 @@ services domotiques, niveaux utilisateurs, historique, statistiques.
 
 ---
 
-## 🚀 Lancement
+## Lancement
 
 ### 1. Backend Django
 
@@ -40,7 +40,7 @@ npm run dev
 
 ---
 
-## 🔐 Inscription : qui peut s'inscrire ?
+## Inscription : qui peut s'inscrire ?
 
 **Seuls les emails pré-autorisés** par l'administrateur peuvent créer un compte.
 La liste est définie dans `backend/api/allowed_members.py`. Le **rôle (parent ou enfant)
@@ -65,7 +65,7 @@ mais ne peut pas voir les détails des objets/services.
 
 ---
 
-## 👤 Permissions par rôle
+## Permissions par rôle
 
 | Action                          | Visiteur | Enfant | Parent (déb/inter) | Parent (avancé/expert) | Admin |
 |---------------------------------|----------|--------|--------------------|------------------------|-------|
@@ -84,7 +84,7 @@ mais ne peut pas voir les détails des objets/services.
 
 ---
 
-## 🏆 Niveaux et points
+## Niveaux et points
 
 | Niveau         | Points | Module débloqué (sauf enfants) |
 |----------------|--------|--------------------------------|
@@ -92,37 +92,6 @@ mais ne peut pas voir les détails des objets/services.
 | Intermédiaire  | 5      | Information, Visualisation     |
 | Avancé         | 10     | + Gestion                      |
 | Expert         | 15     | + Gestion étendu               |
-
-- Connexion : **+0.25** point
-- Consultation d'objet/service : **+0.5** point
-- Choix manuel du niveau via `/level` (parmi ceux débloqués)
-- Les **enfants n'accèdent jamais au module Gestion**, même au niveau avancé.
-
----
-
-## 🔧 Scénario de test rapide
-
-### Tester l'inscription avec validation email
-
-1. Va sur http://localhost:5173/register
-2. Inscris-toi avec `acfiren12@gmail.com` (autorisé, parent)
-3. Reçois l'email Gmail dans ta boîte
-4. Clique sur le lien → page Verify → "Compte activé"
-5. Connecte-toi normalement
-
-### Tester l'admin
-
-1. Connecte-toi avec `admin / admin1234`
-2. Une demande de suppression existe déjà (Aspirateur robot par bob)
-3. Va dans menu Gestion → "🛡 Gérer demandes"
-4. Clique "🗑 Supprimer" ou "✖ Refuser" → la demande disparaît
-
-### Tester les restrictions enfant
-
-1. Connecte-toi avec `charlie / demo1234`
-2. Va sur l'Alarme → bouton Activer/Désactiver est **caché** (objet de sécurité)
-3. Va sur la TV → bouton Activer/Désactiver fonctionne (objet non-sécurité)
-4. Le menu "Gestion" n'apparaît pas dans la barre du haut
 
 ---
 
@@ -150,12 +119,5 @@ smart_home_project/
 └── README.md
 ```
 
----
-
-## 🗄 Base de données : SQLite (relationnelle)
-
-Pour explorer la BDD :
-- Django admin (interface web) : http://127.0.0.1:8000/admin
-- DB Browser for SQLite (gratuit) : https://sqlitebrowser.org/dl/
 ---
 
