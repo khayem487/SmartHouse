@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.utils import timezone
 from .models import (User, Room, Device, Action, Stat,
-                     Category, Service, DeletionRequest)
+                     Category, Service, DeletionRequest, WhitelistEntry)
 
 
 @admin.register(User)
@@ -25,6 +25,13 @@ admin.site.register(Service)
 admin.site.register(Device)
 admin.site.register(Action)
 admin.site.register(Stat)
+
+
+@admin.register(WhitelistEntry)
+class WhitelistAdmin(admin.ModelAdmin):
+    list_display = ("email", "role", "require_email_verification", "added_at")
+    list_filter = ("role", "require_email_verification")
+    search_fields = ("email",)
 
 
 @admin.register(DeletionRequest)

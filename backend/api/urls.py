@@ -9,6 +9,7 @@ router.register(r"rooms", views.RoomViewSet, basename="room")
 router.register(r"categories", views.CategoryViewSet, basename="category")
 router.register(r"services", views.ServiceViewSet, basename="service")
 router.register(r"deletion-requests", views.DeletionRequestViewSet, basename="deletion")
+router.register(r"whitelist", views.WhitelistViewSet, basename="whitelist")
 
 urlpatterns = [
     # AUTH
@@ -16,7 +17,8 @@ urlpatterns = [
     path("login/", views.CustomTokenObtainPairView.as_view()),
     path("token/refresh/", TokenRefreshView.as_view()),
     path("change-password/", views.change_password),
-    path("verify/<uuid:token>/", views.verify_email),
+    path("verify-otp/", views.verify_otp),
+    path("resend-otp/", views.resend_otp),
 
     # PROFILE
     path("profile/", views.ProfileView.as_view()),
@@ -24,6 +26,7 @@ urlpatterns = [
     path("users/", views.list_users),
     path("admin/users/<int:user_id>/suspend/", views.admin_suspend_user),
     path("admin/users/<int:user_id>/unsuspend/", views.admin_unsuspend_user),
+    path("admin/users/<int:user_id>/delete/", views.admin_delete_user),
 
     # DEVICES / HISTORIQUE / STATS
     path("devices/<int:pk>/toggle/", views.toggle_device),

@@ -1,4 +1,5 @@
 import csv
+import random
 from django.conf import settings
 from django.core.mail import send_mail
 from django.http import HttpResponse
@@ -13,33 +14,40 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import (User, Room, Device, Action, Stat,
-                     Category, Service, DeletionRequest)
+                     Category, Service, DeletionRequest, WhitelistEntry)
 from .serializers import (UserRegisterSerializer, UserSerializer,
                           RoomSerializer, DeviceSerializer, ActionSerializer,
                           StatSerializer, CategorySerializer, ServiceSerializer,
-                          DeletionRequestSerializer, PasswordChangeSerializer)
+                          DeletionRequestSerializer, PasswordChangeSerializer,
+                          OTPVerifySerializer, WhitelistEntrySerializer)
 from .allowed_members import requires_email_verification
 
 
 # ============================================================
-# HELPER : envoi de l'email de validation
+# HELPER : génération et envoi du code OTP
 # ============================================================
-def send_verification_email(user):
-    verify_url = f"{settings.FRONTEND_URL}/verify/{user.verification_token}"
+def generate_otp():
+    return f"{random.randint(0, 999999):06d}"
 
-    subject = "🏠 Confirmez votre inscription — SmartHouse"
+
+def send_otp_email(user):
+    code = generate_otp()
+    user.otp_code = code
+    user.otp_created_at = timezone.now()
+    user.save()
+
+    subject = "Votre code d'activation SmartHouse"
     message = f"""Bonjour {user.first_name or user.username},
 
 Bienvenue sur SmartHouse !
 
-Pour finaliser votre inscription et activer votre compte, cliquez sur le lien
-ci-dessous :
+Voici votre code d'activation à 6 chiffres :
 
-    {verify_url}
+    {code}
 
-Vos informations :
-- Pseudo : {user.username}
-- Rôle attribué : {user.get_role_display()}
+Saisissez ce code sur la page d'activation pour finaliser votre inscription.
+
+Ce code est valable 30 minutes.
 
 Si vous n'êtes pas à l'origine de cette inscription, ignorez ce mail.
 
@@ -48,27 +56,25 @@ Si vous n'êtes pas à l'origine de cette inscription, ignorez ce mail.
 
     html_message = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: linear-gradient(135deg, #26215C, #4f46e5);
+      <div style="background: linear-gradient(135deg, #065f46, #059669);
                   color: white; padding: 30px; text-align: center; border-radius: 12px 12px 0 0;">
-        <h1 style="margin: 0;">🏠 SmartHouse</h1>
-        <p style="margin: 10px 0 0; opacity: 0.9;">Confirmez votre inscription</p>
+        <h1 style="margin: 0;">SmartHouse</h1>
+        <p style="margin: 10px 0 0; opacity: 0.9;">Code d'activation</p>
       </div>
       <div style="background: white; padding: 30px; border: 1px solid #e5e7eb;
                   border-top: none; border-radius: 0 0 12px 12px;">
         <p>Bonjour <strong>{user.first_name or user.username}</strong>,</p>
-        <p>Bienvenue sur SmartHouse ! Pour activer votre compte, cliquez sur
-           le bouton ci-dessous :</p>
+        <p>Voici votre code d'activation à saisir dans la page d'inscription :</p>
         <p style="text-align: center; margin: 30px 0;">
-          <a href="{verify_url}"
-             style="background: #4f46e5; color: white; padding: 14px 30px;
-                    border-radius: 8px; text-decoration: none; display: inline-block;
-                    font-weight: bold;">
-            ✔ Activer mon compte
-          </a>
+          <span style="font-size: 2.5em; letter-spacing: 0.4em; font-weight: bold;
+                       color: #065f46; background: #d1fae5; padding: 20px 30px;
+                       border-radius: 8px; display: inline-block; font-family: monospace;">
+            {code}
+          </span>
         </p>
-        <p style="color: #666; font-size: 0.9em;">Ou copiez ce lien dans votre navigateur :</p>
-        <p style="background: #f3f4f6; padding: 10px; border-radius: 6px;
-                  word-break: break-all; font-size: 0.85em;">{verify_url}</p>
+        <p style="color: #666; font-size: 0.9em; text-align: center;">
+          Code valable 30 minutes.
+        </p>
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
         <p style="color: #666; font-size: 0.85em;">
           <strong>Vos informations :</strong><br>
@@ -94,7 +100,7 @@ Si vous n'êtes pas à l'origine de cette inscription, ignorez ce mail.
         )
         return True
     except Exception as e:
-        print(f"⚠ Erreur envoi email à {user.email} : {e}")
+        print(f"Erreur envoi OTP à {user.email} : {e}")
         return False
 
 
@@ -114,14 +120,12 @@ class RegisterView(generics.CreateAPIView):
 
         sent = False
         if needs_mail:
-            sent = send_verification_email(user)
-            message = ("Inscription réussie ! Un email de validation vous a "
-                       "été envoyé. Cliquez sur le lien dans l'email pour "
-                       "activer votre compte.")
+            sent = send_otp_email(user)
+            message = ("Inscription reussie. Un code à 6 chiffres a été envoyé "
+                       "par mail. Saisissez-le pour activer votre compte.")
         else:
-            # Pas de mail requis : sera auto-activé à la 1ère connexion
-            message = ("Inscription réussie ! Votre compte sera activé "
-                       "automatiquement lors de votre première connexion.")
+            message = ("Inscription reussie. Votre compte sera activé "
+                       "automatiquement à votre première connexion.")
 
         return Response({
             "id": user.id,
@@ -134,23 +138,72 @@ class RegisterView(generics.CreateAPIView):
         }, status=status.HTTP_201_CREATED)
 
 
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def verify_otp(request):
+    """Vérifie le code OTP à 6 chiffres et active le compte."""
+    s = OTPVerifySerializer(data=request.data)
+    s.is_valid(raise_exception=True)
+    email = s.validated_data["email"].lower().strip()
+    code = s.validated_data["code"].strip()
+
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        return Response({"detail": "Aucun compte avec cet email."}, status=400)
+
+    if user.email_verified:
+        return Response({"detail": "Ce compte est déjà activé.", "already": True})
+
+    if not user.otp_code or user.otp_code != code:
+        return Response({"detail": "Code incorrect. Vérifiez votre mail."}, status=400)
+
+    # Vérifier expiration (30 min)
+    if user.otp_created_at:
+        elapsed = (timezone.now() - user.otp_created_at).total_seconds()
+        if elapsed > 30 * 60:
+            return Response(
+                {"detail": "Code expiré. Demandez un nouveau code."},
+                status=400)
+
+    user.email_verified = True
+    user.otp_code = ""
+    user.save()
+    return Response({
+        "detail": f"Compte activé pour {user.username}. Vous pouvez vous connecter.",
+        "username": user.username,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def resend_otp(request):
+    """Renvoie un nouveau code OTP."""
+    email = request.data.get("email", "").lower().strip()
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        return Response({"detail": "Aucun compte avec cet email."}, status=404)
+    if user.email_verified:
+        return Response({"detail": "Ce compte est déjà activé."}, status=400)
+    sent = send_otp_email(user)
+    return Response({"detail": "Nouveau code envoyé." if sent else "Erreur d'envoi.",
+                     "sent": sent})
+
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
         user = self.user
 
-        # Auto-activation : si l'email N'exige PAS de mail et qu'il n'est pas
-        # encore vérifié, on l'active à la 1ère connexion
         if not user.email_verified and not user.is_superuser:
             if not requires_email_verification(user.email):
-                # Auto-activation
                 user.email_verified = True
                 user.save()
             else:
-                # Mail requis et pas encore validé → bloquer
                 raise drf_serializers.ValidationError(
                     "Votre email n'a pas encore été validé. "
-                    "Cliquez sur le lien dans l'email reçu pour activer votre compte.")
+                    "Saisissez le code reçu par mail pour activer votre compte.")
 
         user.points = (user.points or 0) + 0.25
         user.nb_connexions = (user.nb_connexions or 0) + 1
@@ -178,30 +231,10 @@ def change_password(request):
     return Response({"detail": "Mot de passe modifié avec succès."})
 
 
-@api_view(["GET", "POST"])
-@permission_classes([AllowAny])
-def verify_email(request, token):
-    try:
-        user = User.objects.get(verification_token=token)
-    except User.DoesNotExist:
-        return Response({"detail": "Lien de validation invalide ou expiré."},
-                        status=400)
-    if user.email_verified:
-        return Response({"detail": "Cet email est déjà validé.", "already": True})
-    user.email_verified = True
-    user.save()
-    return Response({
-        "detail": f"✔ Email validé pour {user.username}. Vous pouvez maintenant vous connecter.",
-        "username": user.username,
-    })
-
-
 # ============================================================
 # PROFILE
 # ============================================================
 class ProfileView(generics.RetrieveUpdateAPIView):
-    """Le PUT/PATCH partiel évite le bug 'username obligatoire' lors de
-    l'upload de photo seule."""
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -215,7 +248,6 @@ class ProfileView(generics.RetrieveUpdateAPIView):
         return ctx
 
     def update(self, request, *args, **kwargs):
-        # Force partial=True : on ne demande que les champs envoyés
         kwargs["partial"] = True
         return super().update(request, *args, **kwargs)
 
@@ -227,11 +259,10 @@ def list_users(request):
     return Response(UserSerializer(users, many=True, context={"request": request}).data)
 
 
-# ----- ADMIN : suspendre / réactiver un utilisateur ---------
+# ----- ADMIN actions sur utilisateurs ---------
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def admin_suspend_user(request, user_id):
-    """L'admin suspend un utilisateur en désactivant son email_verified."""
     if not request.user.is_staff:
         return Response({"detail": "Admin uniquement"}, status=403)
     try:
@@ -243,7 +274,7 @@ def admin_suspend_user(request, user_id):
                         status=400)
     user.email_verified = False
     user.save()
-    return Response({"detail": f"✔ Utilisateur {user.username} suspendu."})
+    return Response({"detail": f"Utilisateur {user.username} suspendu."})
 
 
 @api_view(["POST"])
@@ -257,7 +288,28 @@ def admin_unsuspend_user(request, user_id):
         return Response({"detail": "Utilisateur introuvable"}, status=404)
     user.email_verified = True
     user.save()
-    return Response({"detail": f"✔ Utilisateur {user.username} réactivé."})
+    return Response({"detail": f"Utilisateur {user.username} réactivé."})
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def admin_delete_user(request, user_id):
+    """Supprime définitivement un utilisateur (l'email reste en whitelist)."""
+    if not request.user.is_staff:
+        return Response({"detail": "Admin uniquement"}, status=403)
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return Response({"detail": "Utilisateur introuvable"}, status=404)
+    if user.is_superuser:
+        return Response({"detail": "Impossible de supprimer un super-utilisateur"},
+                        status=400)
+    if user.id == request.user.id:
+        return Response({"detail": "Impossible de se supprimer soi-même"},
+                        status=400)
+    username = user.username
+    user.delete()
+    return Response({"detail": f"Utilisateur {username} supprimé définitivement."})
 
 
 @api_view(["POST"])
@@ -272,8 +324,37 @@ def set_level(request):
     u.level = target
     u.save()
     Action.objects.create(user=u, action_type="level_change",
-                          description=f"Niveau changé : {old} → {target}")
+                          description=f"Niveau changé : {old} -> {target}")
     return Response(UserSerializer(u, context={"request": request}).data)
+
+
+# ============================================================
+# WHITELIST (admin uniquement)
+# ============================================================
+class WhitelistViewSet(viewsets.ModelViewSet):
+    queryset = WhitelistEntry.objects.all()
+    serializer_class = WhitelistEntrySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if not self.request.user.is_staff:
+            return WhitelistEntry.objects.none()
+        return super().get_queryset()
+
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({"detail": "Admin uniquement"}, status=403)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({"detail": "Admin uniquement"}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({"detail": "Admin uniquement"}, status=403)
+        return super().destroy(request, *args, **kwargs)
 
 
 # ============================================================
@@ -388,7 +469,7 @@ def toggle_device(request, pk):
         return Response({"detail": "Non trouvé"}, status=404)
     if not request.user.can_toggle_device(device):
         return Response(
-            {"detail": "🔒 Les enfants ne peuvent pas activer/désactiver "
+            {"detail": "Les enfants ne peuvent pas activer ou désactiver "
                        "les objets de sécurité (alarme, caméra, porte, détecteur)."},
             status=403)
     device.status = "on" if device.status == "off" else "off"
@@ -396,7 +477,7 @@ def toggle_device(request, pk):
     request.user.nb_actions += 1
     request.user.save()
     Action.objects.create(user=request.user, action_type="toggle", device=device,
-                          description=f"{device.name} → {device.get_status_display()}")
+                          description=f"{device.name} -> {device.get_status_display()}")
     return Response(DeviceSerializer(device).data)
 
 
@@ -431,6 +512,57 @@ class ServiceViewSet(viewsets.ModelViewSet):
         Action.objects.create(user=u, action_type="consult",
                               description=f"Consultation du service {instance.name}")
         return Response(self.get_serializer(instance).data)
+
+    @action(detail=True, methods=["post"], url_path="toggle")
+    def toggle(self, request, pk=None):
+        """Active ou désactive tous les objets liés au service.
+        Body : { "action": "on" } ou { "action": "off" }"""
+        service = self.get_object()
+        target = request.data.get("action")
+        if target not in ("on", "off"):
+            return Response({"detail": "Paramètre 'action' invalide ('on' ou 'off')."},
+                            status=400)
+
+        # Restriction enfant : si le service contient un objet de sécurité,
+        # un enfant ne peut PAS l'activer ni le désactiver
+        if request.user.is_child() and service.has_security_device():
+            return Response({
+                "detail": "Ce service contient des objets de sécurité. "
+                          "Réservé aux parents."
+            }, status=403)
+
+        devices = list(service.related_devices.all())
+        if not devices:
+            return Response({"detail": "Aucun objet lié à ce service."}, status=400)
+
+        # Bascule tous les objets liés
+        updated = []
+        for d in devices:
+            # Skip silencieusement les objets de sécurité pour les enfants
+            # (déjà bloqué plus haut, mais double sécurité)
+            if request.user.is_child() and d.type in {"alarme", "camera", "porte", "detecteur"}:
+                continue
+            d.status = target
+            d.save()
+            updated.append(d.name)
+
+        # Une seule action de log pour le service entier
+        request.user.nb_actions += 1
+        request.user.save()
+        action_label = "activé" if target == "on" else "désactivé"
+        Action.objects.create(
+            user=request.user,
+            action_type="toggle",
+            description=f"Service '{service.name}' {action_label} ({len(updated)} objet(s) modifié(s))",
+        )
+
+        return Response({
+            "detail": f"Service « {service.name} » {action_label}. "
+                      f"{len(updated)} objet(s) modifié(s).",
+            "action": target,
+            "devices_updated": updated,
+            "service": ServiceSerializer(service).data,
+        })
 
 
 # ============================================================
@@ -473,7 +605,7 @@ class DeletionRequestViewSet(viewsets.ModelViewSet):
             description=f"Suppression de {device_name} (demande approuvée)")
         device.delete()
         return Response({
-            "detail": f"✔ Objet « {device_name} » supprimé. Demande traitée.",
+            "detail": f"Objet « {device_name} » supprimé. Demande traitée.",
             "device_name": device_name,
             "device_id": device_id,
         })
@@ -490,7 +622,7 @@ class DeletionRequestViewSet(viewsets.ModelViewSet):
         dr.resolved_at = timezone.now()
         dr.save()
         return Response({
-            "detail": f"✔ Demande pour « {device_name} » refusée. L'objet est conservé.",
+            "detail": f"Demande pour « {device_name} » refusée. L'objet est conservé.",
             "device_name": device_name,
         })
 
@@ -508,8 +640,11 @@ def my_actions(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def global_history(request):
-    if request.user.is_child():
-        return Response({"detail": "Accès interdit aux enfants."}, status=403)
+    """Historique global réservé à l'administrateur."""
+    if not request.user.is_staff:
+        return Response(
+            {"detail": "L'historique global est réservé à l'administrateur."},
+            status=403)
     qs = Action.objects.filter(device__isnull=False)[:100]
     return Response(ActionSerializer(qs, many=True).data)
 

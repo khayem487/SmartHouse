@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import API, { isAdmin } from "../api";
+import { Link, useNavigate } from "react-router-dom";
+import API, { isAdmin, clearAuth } from "../api";
 
 const LEVEL_LABEL = {
   debutant: "Débutant", intermediaire: "Intermédiaire",
@@ -9,6 +9,7 @@ const LEVEL_LABEL = {
 const GENDER_LABEL = { M: "Masculin", F: "Féminin", N: "Non précisé" };
 
 export default function Profile() {
+  const nav = useNavigate();
   const [me, setMe] = useState(null);
   const [others, setOthers] = useState([]);
   const [edit, setEdit] = useState(false);
@@ -22,8 +23,13 @@ export default function Profile() {
   const [photoFile, setPhotoFile] = useState(null);
   const [photoVer, setPhotoVer] = useState(Date.now());
 
-  // Admin : voir détails d'un utilisateur cliqué
+  // Admin
   const [selectedUser, setSelectedUser] = useState(null);
+  const [whitelist, setWhitelist] = useState([]);
+  const [showWhitelist, setShowWhitelist] = useState(false);
+  const [whitelistForm, setWhitelistForm] = useState({
+    email: "", role: "parent", require_email_verification: false,
+  });
 
   const admin = isAdmin();
 
@@ -34,6 +40,9 @@ export default function Profile() {
       localStorage.setItem("user", JSON.stringify(r.data));
     });
     API.get("/users/").then((r) => setOthers(r.data));
+    if (isAdmin()) {
+      API.get("/whitelist/").then((r) => setWhitelist(r.data)).catch(() => {});
+    }
   };
 
   useEffect(load, []);
@@ -49,11 +58,10 @@ export default function Profile() {
       await API.patch("/profile/", {
         username: form.username, email: form.email,
         first_name: form.first_name, last_name: form.last_name,
-        age: form.age,
-        gender: form.gender,
+        age: form.age, gender: form.gender,
         date_naissance: form.date_naissance || null,
       });
-      setMsg("Profil mis à jour ✔");
+      setMsg("Profil mis à jour.");
       setEdit(false);
       load();
       setTimeout(() => setMsg(""), 2500);
@@ -62,8 +70,6 @@ export default function Profile() {
     }
   };
 
-  // BUG FIX : on fait un PATCH (partial update) au lieu de PUT
-  // pour ne pas avoir à renvoyer username, email, etc.
   const uploadPhoto = async (e) => {
     e.preventDefault();
     if (!photoFile) return;
@@ -74,7 +80,7 @@ export default function Profile() {
       await API.patch("/profile/", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      setMsg("Photo mise à jour ✔");
+      setMsg("Photo mise à jour.");
       setPhotoFile(null);
       setPhotoVer(Date.now());
       load();
@@ -89,7 +95,7 @@ export default function Profile() {
     setErr(""); setMsg("");
     try {
       await API.post("/change-password/", pwdForm);
-      setMsg("Mot de passe changé ✔");
+      setMsg("Mot de passe changé.");
       setPwdForm({ old_password: "", new_password: "" });
       setShowPwd(false);
       setTimeout(() => setMsg(""), 2500);
@@ -98,14 +104,13 @@ export default function Profile() {
     }
   };
 
-  // ADMIN : suspendre / réactiver un user
+  // ------ ADMIN ------
   const suspendUser = async (u) => {
-    if (!confirm(`Suspendre ${u.username} ?\n\nIl ne pourra plus se connecter tant qu'il n'aura pas été réactivé.`)) return;
+    if (!confirm(`Suspendre ${u.username} ?\n\nIl ne pourra plus se connecter.`)) return;
     try {
       const { data } = await API.post(`/admin/users/${u.id}/suspend/`);
       setMsg(data.detail);
       load();
-      // Mettre à jour le user sélectionné
       if (selectedUser?.id === u.id) {
         setSelectedUser({ ...selectedUser, email_verified: false });
       }
@@ -130,6 +135,56 @@ export default function Profile() {
     }
   };
 
+  const deleteUser = async (u) => {
+    const confirmation = prompt(
+      `ATTENTION : suppression définitive.\n\n` +
+      `Toutes les données (objets créés, historique...) seront perdues.\n` +
+      `L'email reste dans la whitelist.\n\n` +
+      `Tapez le pseudo "${u.username}" pour confirmer :`
+    );
+    if (confirmation !== u.username) {
+      if (confirmation !== null) alert("Pseudo incorrect, suppression annulée.");
+      return;
+    }
+    try {
+      const { data } = await API.delete(`/admin/users/${u.id}/delete/`);
+      setMsg(data.detail);
+      setSelectedUser(null);
+      load();
+      setTimeout(() => setMsg(""), 3000);
+    } catch (ex) {
+      setErr(ex.response?.data?.detail || "Erreur");
+    }
+  };
+
+  const addToWhitelist = async (e) => {
+    e.preventDefault();
+    setErr(""); setMsg("");
+    try {
+      await API.post("/whitelist/", whitelistForm);
+      setMsg(`Email ${whitelistForm.email} ajouté à la whitelist.`);
+      setWhitelistForm({ email: "", role: "parent", require_email_verification: false });
+      load();
+      setTimeout(() => setMsg(""), 3000);
+    } catch (ex) {
+      const d = ex.response?.data;
+      if (d?.email) setErr(Array.isArray(d.email) ? d.email[0] : d.email);
+      else setErr(JSON.stringify(d || ex.message));
+    }
+  };
+
+  const removeFromWhitelist = async (id, email) => {
+    if (!confirm(`Retirer ${email} de la whitelist ?`)) return;
+    try {
+      await API.delete(`/whitelist/${id}/`);
+      setMsg(`Email ${email} retiré de la whitelist.`);
+      load();
+      setTimeout(() => setMsg(""), 3000);
+    } catch (ex) {
+      setErr(ex.response?.data?.detail || "Erreur");
+    }
+  };
+
   const photoSrc = me.photo_url ? `${me.photo_url}?v=${photoVer}` : null;
 
   return (
@@ -146,7 +201,7 @@ export default function Profile() {
           ) : (
             <div className="profile-photo" aria-label="Pas de photo"
                  style={{ display: "flex", alignItems: "center", justifyContent: "center",
-                          fontSize: "2rem", color: "#999" }}>👤</div>
+                          fontSize: "2rem", color: "#999" }}>?</div>
           )}
           <form onSubmit={uploadPhoto} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input type="file" accept="image/*" aria-label="Choisir une photo"
@@ -203,7 +258,7 @@ export default function Profile() {
             <input type="date" value={form.date_naissance || ""}
                    onChange={(e) => set("date_naissance", e.target.value)} />
             <p style={{ fontSize: "0.85em", color: "#666", marginTop: 10 }}>
-              ℹ Le rôle (parent / enfant) est fixé par l'administrateur et ne peut être modifié.
+              Le rôle (parent / enfant) est fixé par l'administrateur et ne peut être modifié.
             </p>
             <button type="submit">Enregistrer</button>
             <button type="button" className="btn secondary" style={{ marginTop: 10 }}
@@ -237,7 +292,7 @@ export default function Profile() {
                padding: "1rem",
              }}
              onClick={() => setSelectedUser(null)}>
-          <div className="card" style={{ maxWidth: 500, width: "100%" }}
+          <div className="card" style={{ maxWidth: 500, width: "100%", maxHeight: "90vh", overflow: "auto" }}
                onClick={(e) => e.stopPropagation()}>
             <h2>{selectedUser.username}</h2>
             <p><strong>Prénom :</strong> {selectedUser.first_name || "—"}</p>
@@ -254,27 +309,29 @@ export default function Profile() {
             <p>
               <strong>Statut :</strong>{" "}
               {selectedUser.email_verified
-                ? <span className="badge on">✔ Actif</span>
-                : <span className="badge off">⏸ Suspendu</span>}
+                ? <span className="badge on">Actif</span>
+                : <span className="badge off">Suspendu</span>}
             </p>
 
-            {/* Actions admin */}
             {admin && !selectedUser.is_staff && (
-              <div style={{ marginTop: 15 }}>
+              <div style={{ marginTop: 15, display: "flex", flexWrap: "wrap", gap: 5 }}>
                 {selectedUser.email_verified ? (
-                  <button className="btn danger" onClick={() => suspendUser(selectedUser)}>
-                    ⏸ Suspendre l'utilisateur
+                  <button className="btn secondary" onClick={() => suspendUser(selectedUser)}>
+                    Suspendre
                   </button>
                 ) : (
                   <button className="btn success" onClick={() => unsuspendUser(selectedUser)}>
-                    ▶ Réactiver l'utilisateur
+                    Réactiver
                   </button>
                 )}
+                <button className="btn danger" onClick={() => deleteUser(selectedUser)}>
+                  Supprimer définitivement
+                </button>
               </div>
             )}
             {admin && selectedUser.is_staff && (
               <p style={{ color: "#666", fontStyle: "italic" }}>
-                Les administrateurs ne peuvent pas être suspendus.
+                Les administrateurs ne peuvent pas être suspendus ni supprimés.
               </p>
             )}
 
@@ -284,13 +341,92 @@ export default function Profile() {
         </div>
       )}
 
+      {/* ===== Section Whitelist (admin uniquement) ===== */}
+      {admin && (
+        <section aria-labelledby="whitelist-t">
+          <h2 id="whitelist-t">Whitelist (admin)</h2>
+          <p style={{ fontSize: "0.9em", color: "#666" }}>
+            Liste des emails autorisés à s'inscrire. Seuls ces emails peuvent
+            créer un compte. Si "Code par mail" est activé, l'utilisateur recevra
+            un code à 6 chiffres pour valider son inscription.
+          </p>
+
+          <button className="btn" onClick={() => setShowWhitelist(!showWhitelist)}>
+            {showWhitelist ? "Masquer la whitelist" : "Afficher la whitelist"}
+          </button>
+
+          {showWhitelist && (
+            <>
+              <form onSubmit={addToWhitelist} className="form" style={{ marginTop: 15 }}>
+                <h3>Ajouter un email</h3>
+                <label>Email</label>
+                <input type="email" value={whitelistForm.email}
+                       onChange={(e) => setWhitelistForm({ ...whitelistForm, email: e.target.value })}
+                       required placeholder="email@exemple.com" />
+                <label>Rôle</label>
+                <select value={whitelistForm.role}
+                        onChange={(e) => setWhitelistForm({ ...whitelistForm, role: e.target.value })}>
+                  <option value="parent">Parent</option>
+                  <option value="enfant">Enfant</option>
+                </select>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+                  <input type="checkbox" style={{ width: "auto" }}
+                         checked={whitelistForm.require_email_verification}
+                         onChange={(e) => setWhitelistForm({
+                           ...whitelistForm,
+                           require_email_verification: e.target.checked
+                         })} />
+                  Envoyer un code à 6 chiffres par mail (sinon activation auto)
+                </label>
+                <button type="submit">Ajouter à la whitelist</button>
+              </form>
+
+              <h3 style={{ marginTop: 20 }}>Emails autorisés ({whitelist.length})</h3>
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Rôle</th>
+                      <th>Code mail</th>
+                      <th>Compte créé</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {whitelist.map((w) => (
+                      <tr key={w.id}>
+                        <td>{w.email}</td>
+                        <td>{w.role}</td>
+                        <td>{w.require_email_verification ? "Oui" : "Non"}</td>
+                        <td>
+                          {w.has_account
+                            ? <span className="badge on">Oui</span>
+                            : <span className="badge warning">Non</span>}
+                        </td>
+                        <td>
+                          <button className="btn danger"
+                                  onClick={() => removeFromWhitelist(w.id, w.email)}>
+                            Retirer
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
       <section aria-labelledby="others-t">
         <h2 id="others-t">
           {admin ? "Tous les utilisateurs" : "Autres membres de la maison"}
         </h2>
         {admin && (
           <p style={{ fontSize: "0.9em", color: "#666" }}>
-            🛡 Cliquez sur un utilisateur pour voir ses détails et le suspendre / réactiver.
+            Cliquez sur un utilisateur pour voir ses détails et le suspendre, réactiver ou supprimer.
           </p>
         )}
         <div className="cards">
@@ -312,8 +448,8 @@ export default function Profile() {
               {admin && (
                 <p>
                   {u.email_verified
-                    ? <span className="badge on">✔ Actif</span>
-                    : <span className="badge off">⏸ Suspendu</span>}
+                    ? <span className="badge on">Actif</span>
+                    : <span className="badge off">Suspendu</span>}
                 </p>
               )}
             </article>

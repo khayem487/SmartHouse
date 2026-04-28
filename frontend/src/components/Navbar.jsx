@@ -33,58 +33,54 @@ export default function Navbar() {
 
   return (
     <nav className="navbar" aria-label="Navigation principale" ref={ref}>
-      <Link to="/" className="brand">🏠 SmartHouse</Link>
+      <Link to="/" className="brand">SmartHouse</Link>
 
       <div className="links">
         <Link to="/">Accueil</Link>
 
-        {/* Catégorie : Explorer */}
         <div className="dropdown">
           <button className="dropdown-btn" onClick={() => toggle("explore")}
                   aria-expanded={openMenu === "explore"}>
-            Explorer ▾
+            Explorer
           </button>
           {openMenu === "explore" && (
             <div className="dropdown-menu">
-              <Link to="/devices">🔌 Objets connectés</Link>
-              <Link to="/services">🔧 Services</Link>
+              <Link to="/devices">Objets connectés</Link>
+              <Link to="/services">Services</Link>
             </div>
           )}
         </div>
 
-        {/* Mon espace (connecté, sauf admin pour Mes demandes) */}
         {logged && (
           <div className="dropdown">
             <button className="dropdown-btn" onClick={() => toggle("space")}
                     aria-expanded={openMenu === "space"}>
-              Mon espace ▾
+              Mon espace
             </button>
             {openMenu === "space" && (
               <div className="dropdown-menu">
-                <Link to="/dashboard">📊 Tableau de bord</Link>
-                <Link to="/profile">👤 Profil</Link>
-                <Link to="/level">🏆 Niveau</Link>
-                {/* Admin n'envoie pas de demandes → pas d'onglet "Mes demandes" */}
-                {!admin && <Link to="/my-requests">📩 Mes demandes</Link>}
+                <Link to="/dashboard">Tableau de bord</Link>
+                <Link to="/profile">Profil</Link>
+                <Link to="/level">Niveau</Link>
+                {!admin && <Link to="/my-requests">Mes demandes</Link>}
               </div>
             )}
           </div>
         )}
 
-        {/* Gestion (avancé/expert + pas enfant) */}
         {logged && advanced && (
           <div className="dropdown">
             <button className="dropdown-btn" onClick={() => toggle("manage")}
                     aria-expanded={openMenu === "manage"}>
-              Gestion ▾
+              Gestion
             </button>
             {openMenu === "manage" && (
               <div className="dropdown-menu">
-                <Link to="/devices/add">➕ Ajouter un objet</Link>
-                <Link to="/maintenance">🛠 Maintenance</Link>
-                <Link to="/history">📜 Historique</Link>
-                <Link to="/stats">📈 Statistiques</Link>
-                {admin && <Link to="/admin-requests">🛡 Gérer demandes</Link>}
+                <Link to="/devices/add">Ajouter un objet</Link>
+                <Link to="/maintenance">Maintenance</Link>
+                <Link to="/stats">Statistiques</Link>
+                {admin && <Link to="/history">Historique</Link>}
+                {admin && <Link to="/admin-requests">Gérer les demandes</Link>}
               </div>
             )}
           </div>

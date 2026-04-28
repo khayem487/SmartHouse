@@ -10,10 +10,6 @@ const TYPES = [
   ["sante", "Santé & bien-être"],
 ];
 
-const ICONS = {
-  energie: "⚡", securite: "🔒", confort: "🛋", divertissement: "📺", sante: "❤",
-};
-
 export default function Services() {
   const nav = useNavigate();
   const [services, setServices] = useState([]);
@@ -36,17 +32,20 @@ export default function Services() {
   return (
     <main className="container" id="main">
       <h1>Services & outils SmartHouse</h1>
-      <p>Services variés : consommation énergétique, sécurité, confort, divertissement…</p>
+      <p>
+        Chaque service regroupe plusieurs objets connectés.
+        Activez ou désactivez tous les objets d'un service en un seul clic.
+      </p>
 
       {!logged && (
         <div className="alert info">
-          🔒 Vous êtes en mode visiteur. <Link to="/login">Connectez-vous</Link> pour consulter les détails.
+          Vous êtes en mode visiteur. <Link to="/login">Connectez-vous</Link> pour consulter les détails et activer les services.
         </div>
       )}
 
       <section aria-label="Filtres">
         <div className="filters">
-          <input placeholder="🔎 Recherche nom ou description…" value={filters.q}
+          <input placeholder="Recherche nom ou description" value={filters.q}
                  onChange={(e) => set("q", e.target.value)}
                  aria-label="Recherche texte" />
           <select value={filters.type} onChange={(e) => set("type", e.target.value)} aria-label="Type">
@@ -64,25 +63,25 @@ export default function Services() {
       <p><strong>{services.length}</strong> service(s) trouvé(s)</p>
 
       <div className="cards">
-        {services.map((s) => (
-          <article key={s.id} className="card"
-                   role="button" tabIndex={0}
-                   style={{ cursor: "pointer" }}
-                   onClick={() => handleClick(s.id)}
-                   onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleClick(s.id)}
-                   aria-label={`Voir ${s.name}`}>
-            <p className="icon" aria-hidden="true">{ICONS[s.type] || "🔧"}</p>
-            <h3>{s.name}</h3>
-            <p>{s.description.slice(0, 100)}{s.description.length > 100 ? "…" : ""}</p>
-            <p><strong>Type :</strong> {s.type_display}</p>
-            {s.related_device_name && (
-              <p><strong>Objet lié :</strong> {s.related_device_name}</p>
-            )}
-            <span className={"badge " + (s.active ? "on" : "off")}>
-              {s.active ? "Actif" : "Inactif"}
-            </span>
-          </article>
-        ))}
+        {services.map((s) => {
+          const nbDevices = s.related_devices_info?.length || 0;
+          return (
+            <article key={s.id} className="card"
+                     role="button" tabIndex={0}
+                     style={{ cursor: "pointer" }}
+                     onClick={() => handleClick(s.id)}
+                     onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleClick(s.id)}
+                     aria-label={`Voir ${s.name}`}>
+              <h3>{s.name}</h3>
+              <p>{s.description.slice(0, 100)}{s.description.length > 100 ? "…" : ""}</p>
+              <p><strong>Type :</strong> {s.type_display}</p>
+              <p><strong>Objets liés :</strong> {nbDevices}</p>
+              <span className={"badge " + (s.all_devices_on ? "on" : "off")}>
+                {nbDevices === 0 ? "Aucun objet" : (s.all_devices_on ? "Tous actifs" : "Inactif / partiel")}
+              </span>
+            </article>
+          );
+        })}
       </div>
     </main>
   );

@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import API from "../api";
 
 export default function Register() {
+  const nav = useNavigate();
   const [form, setForm] = useState({
     username: "", email: "", password: "",
     first_name: "", last_name: "",
@@ -21,10 +22,15 @@ export default function Register() {
     setLoading(true);
     try {
       const { data } = await API.post("/register/", form);
+      // Si OTP requis, redirige vers la page de vérification
+      if (data.needs_mail) {
+        nav(`/verify-otp?email=${encodeURIComponent(data.email)}`);
+        return;
+      }
+      // Sinon affichage simple de confirmation
       setSuccess(data);
     } catch (err) {
       const data = err.response?.data;
-      // Affichage propre des erreurs
       if (typeof data === "string") setError(data);
       else if (data?.email) setError(Array.isArray(data.email) ? data.email[0] : data.email);
       else if (data?.username) setError("Pseudo : " + (Array.isArray(data.username) ? data.username[0] : data.username));
@@ -39,21 +45,13 @@ export default function Register() {
     return (
       <main className="container" id="main">
         <div className="form" style={{ textAlign: "center" }}>
-          <h2>✔ Inscription réussie !</h2>
+          <h2>Inscription réussie</h2>
           <div className="alert success" style={{ textAlign: "left" }}>
             <p>Bonjour <strong>{success.username}</strong>,</p>
-            <p>Votre compte a été créé. Un email de validation a été envoyé à :</p>
-            <p style={{ fontSize: "1.1em", margin: "10px 0" }}>
-              <strong>📧 {success.email}</strong>
-            </p>
-            <p>Cliquez sur le lien dans l'email pour activer votre compte avant de vous connecter.</p>
-            <p>Rôle attribué automatiquement : <strong>{success.role}</strong></p>
+            <p>Votre compte a été créé.</p>
+            <p>Rôle attribué : <strong>{success.role}</strong></p>
+            <p>{success.message}</p>
           </div>
-          {!success.email_sent && (
-            <div className="alert warning">
-              ⚠ L'envoi de l'email a échoué côté serveur. Contactez l'administrateur.
-            </div>
-          )}
           <p>
             <Link to="/login" className="btn">Aller à la page de connexion</Link>
           </p>
@@ -68,9 +66,9 @@ export default function Register() {
         <h2 id="reg-title">Inscription</h2>
 
         <div className="alert info">
-          🏠 <strong>Seuls les membres de la maison peuvent s'inscrire.</strong><br/>
+          <strong>Seuls les membres de la maison peuvent s'inscrire.</strong><br/>
           Votre email doit avoir été pré-autorisé par l'administrateur.
-          Le rôle (parent ou enfant) sera attribué automatiquement.
+          Le rôle (parent ou enfant) est attribué automatiquement.
         </div>
 
         <label htmlFor="u">Nom d'utilisateur (pseudo)</label>

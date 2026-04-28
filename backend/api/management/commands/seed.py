@@ -1,9 +1,9 @@
 import random
-from datetime import date, time, datetime, timedelta
+from datetime import date, time, timedelta
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from api.models import (User, Room, Device, Action, Stat,
-                        Category, Service, DeletionRequest)
+                        Category, Service, DeletionRequest, WhitelistEntry)
 
 
 class Command(BaseCommand):
@@ -13,9 +13,27 @@ class Command(BaseCommand):
         self.stdout.write("Nettoyage…")
         for m in (DeletionRequest, Stat, Action, Service, Device, Room, Category):
             m.objects.all().delete()
+        WhitelistEntry.objects.all().delete()
         User.objects.filter(is_superuser=False).delete()
-        # Aussi supprimer l'admin pour un seed propre
         User.objects.filter(username="admin").delete()
+
+        # --- WHITELIST ---
+        self.stdout.write("Création de la whitelist…")
+        whitelist_data = [
+            # email, role, require_email_verification
+            ("alice@maison.fr",            "parent", False),
+            ("bob@maison.fr",              "parent", False),
+            ("charlie@maison.fr",          "enfant", False),
+            ("demo@maison.fr",             "parent", False),
+            ("admin@maison.fr",            "parent", False),
+            ("acfiren12@gmail.com",        "parent", True),   # OTP requis
+            ("famille.dupont@gmail.com",   "parent", False),
+            ("lucas.dupont@gmail.com",     "enfant", False),
+            ("marie.martin@gmail.com",     "parent", False),
+        ]
+        for email, role, req in whitelist_data:
+            WhitelistEntry.objects.create(
+                email=email, role=role, require_email_verification=req)
 
         # --- Catégories ---
         cats = {}
@@ -86,47 +104,67 @@ class Command(BaseCommand):
             )
             devices.append(d)
 
-        # --- 2 objets avec maintenance ancienne ---
-        devices[4].last_maintenance = date(2024, 1, 15)
-        devices[4].save()
-        devices[10].last_maintenance = date(2023, 8, 10)
-        devices[10].save()
-
-        # --- Services ---
-        services = [
-            ("Suivi consommation électrique",
-             "Visualise la consommation kWh de tous tes appareils en temps réel.",
-             "energie", devices[2]),
-            ("Alarme intrusion",
-             "Notification instantanée dès qu'un mouvement suspect est détecté.",
-             "securite", devices[9]),
-            ("Surveillance vidéo",
-             "Accède aux flux des caméras à distance depuis ton téléphone.",
-             "securite", devices[1]),
-            ("Mode nuit automatique",
-             "Baisse le chauffage à 19°C et ferme les volets à 22h.",
-             "confort", devices[0]),
-            ("Planning machine à café",
-             "Café prêt chaque matin à 6h30 du lundi au vendredi.",
-             "confort", devices[8]),
-            ("Streaming musical multiroom",
-             "Diffusion de musique dans toutes les pièces depuis ton téléphone.",
-             "divertissement", devices[12]),
-            ("Rapport énergétique hebdomadaire",
-             "Bilan hebdo envoyé chaque dimanche par email.",
-             "energie", None),
-            ("Arrosage intelligent",
-             "Programmation automatique selon la météo.",
-             "confort", devices[10]),
-            ("Cinéma à la maison",
-             "Lance la TV, baisse les volets, éteint la lumière en un clic.",
-             "divertissement", devices[6]),
-            ("Détection de fuite",
-             "Alerte en cas d'anomalie de consommation d'eau.",
-             "securite", None),
+        # --- 7 objets en maintenance (sur 15) : moitié à réviser ---
+        # Indices : Lave-linge, Aspirateur, Climatiseur, Alarme,
+        #          Arrosage jardin, Détecteur entrée, Thermostat Chambre
+        # On varie : certains avec batterie faible, d'autres maintenance ancienne
+        maintenance_setup = [
+            (2,  15, date(2025, 6, 10)),   # Lave-linge : batterie faible
+            (4,   8, date(2024, 1, 15)),   # Aspirateur : batterie + maintenance ancienne
+            (7,  12, date(2025, 5, 20)),   # Climatiseur : batterie faible
+            (9, 100, date(2024, 6, 5)),    # Alarme : maintenance ancienne (>6 mois)
+            (10, 18, date(2023, 8, 10)),   # Arrosage : batterie + maintenance très ancienne
+            (13, 100, date(2024, 8, 20)),  # Détecteur : maintenance ancienne (>6 mois)
+            (14,  5, date(2025, 9, 1)),    # Thermostat Chambre : batterie très faible
         ]
-        for n, d, t, dev in services:
-            Service.objects.create(name=n, description=d, type=t, related_device=dev)
+        for idx, bat, last_maint in maintenance_setup:
+            devices[idx].battery = bat
+            devices[idx].last_maintenance = last_maint
+            devices[idx].save()
+
+        # --- 5 SERVICES M2M (chacun lié à plusieurs objets) ---
+        # Format : (name, description, type, [indices_devices])
+        services_data = [
+            (
+                "Mode sécurité maison",
+                "Activez tout le système de sécurité en un clic : alarme, "
+                "caméra de surveillance, détecteur d'entrée et porte du garage.",
+                "securite",
+                [9, 1, 13, 11],  # Alarme, Caméra entrée, Détecteur Entrée, Porte garage
+            ),
+            (
+                "Confort & ambiance",
+                "Réglez l'ambiance idéale : thermostats au bon niveau, "
+                "climatiseur en marche, volets ouverts.",
+                "confort",
+                [0, 14, 7, 5],  # Thermostat Salon, Thermostat Chambre, Climatiseur, Volet salon
+            ),
+            (
+                "Cinéma à la maison",
+                "Lancez le mode cinéma : TV allumée, enceinte connectée, "
+                "volets fermés pour l'immersion.",
+                "divertissement",
+                [6, 12, 5],  # TV Salon, Enceinte Salon, Volet salon
+            ),
+            (
+                "Routine matinale",
+                "Réveil en douceur : café préparé, volets ouverts, "
+                "thermostat du salon réglé.",
+                "confort",
+                [8, 5, 0],  # Machine à café, Volet salon, Thermostat Salon
+            ),
+            (
+                "Entretien quotidien",
+                "Lancez tous les appareils ménagers : lave-linge, "
+                "lave-vaisselle, aspirateur robot et arrosage du jardin.",
+                "energie",
+                [2, 3, 4, 10],  # Lave-linge, Lave-vaisselle, Aspirateur, Arrosage jardin
+            ),
+        ]
+        for name, desc, type_, dev_indices in services_data:
+            srv = Service.objects.create(name=name, description=desc, type=type_)
+            for idx in dev_indices:
+                srv.related_devices.add(devices[idx])
 
         # --- Stats de consommation ---
         for d in devices:
@@ -134,19 +172,12 @@ class Command(BaseCommand):
                 Stat.objects.create(device=d,
                                     consumption=round(random.uniform(0.1, 3.5), 2))
 
-        # --- Historique varié : connexions étalées sur plusieurs jours/heures ---
-        # Pour chaque user, génère des connexions à des moments réalistes
-        # (matin, midi, soir, sur les 3 dernières semaines)
+        # --- Historique varié ---
         now = timezone.now()
-        # Profils différents par utilisateur
         user_profiles = {
-            users[0].id: 25,  # alice : très active
-            users[1].id: 18,  # bob : assez active
-            users[2].id: 8,   # charlie : enfant, moins de connexions
-            users[3].id: 4,   # demo : peu utilisé
+            users[0].id: 25, users[1].id: 18,
+            users[2].id: 8,  users[3].id: 4,
         }
-
-        # Heures réalistes (matin, midi, soir)
         realistic_hours = [
             (7, 30), (8, 15), (12, 5), (12, 45),
             (18, 20), (19, 30), (20, 45), (21, 15), (22, 0),
@@ -156,31 +187,21 @@ class Command(BaseCommand):
             n_logins = user_profiles[user.id]
             user_actions = []
             for _ in range(n_logins):
-                # Date aléatoire dans les 21 derniers jours
                 days_ago = random.randint(0, 20)
                 hour, minute = random.choice(realistic_hours)
-                # Petite variation aléatoire
                 minute_offset = random.randint(-15, 15)
                 date_login = now - timedelta(days=days_ago)
                 date_login = date_login.replace(
                     hour=hour, minute=max(0, min(59, minute + minute_offset)),
                     second=random.randint(0, 59), microsecond=0)
                 user_actions.append(date_login)
-
-            # Tri pour générer dans l'ordre chronologique (plus récent en dernier)
             user_actions.sort()
-
             for d_login in user_actions:
                 a = Action.objects.create(
-                    user=user,
-                    action_type="login",
-                    description="Connexion à la plateforme",
-                )
-                # auto_now_add empêche de fixer la date à la création :
-                # on l'écrase via update juste après
+                    user=user, action_type="login",
+                    description="Connexion à la plateforme")
                 Action.objects.filter(pk=a.pk).update(date=d_login)
 
-            # Quelques consultations aussi pour réalisme
             for _ in range(random.randint(3, 8)):
                 days_ago = random.randint(0, 14)
                 hour, minute = random.choice(realistic_hours)
@@ -190,14 +211,10 @@ class Command(BaseCommand):
                     second=random.randint(0, 59), microsecond=0)
                 device = random.choice(devices)
                 a = Action.objects.create(
-                    user=user,
-                    action_type="consult",
-                    device=device,
-                    description=f"Consultation de {device.name}",
-                )
+                    user=user, action_type="consult",
+                    device=device, description=f"Consultation de {device.name}")
                 Action.objects.filter(pk=a.pk).update(date=date_consult)
 
-            # Mettre à jour le compteur nb_connexions du user
             user.nb_connexions = n_logins
             user.nb_actions = n_logins + random.randint(3, 8)
             user.save()
@@ -218,16 +235,14 @@ class Command(BaseCommand):
             first_name="Admin", last_name="System",
             is_approved=True, email_verified=True)
 
-        self.stdout.write(self.style.SUCCESS("✔ Données SmartHouse générées !"))
-        self.stdout.write(" Tous les objets ont 100% de batterie au départ.")
-        self.stdout.write(" 2 objets ont une maintenance ancienne (démo Maintenance).")
-        self.stdout.write(" Connexions étalées sur 21 jours, à des heures réalistes.")
-        self.stdout.write("")
+        self.stdout.write(self.style.SUCCESS("Données SmartHouse générées."))
+        self.stdout.write(" 15 objets connectés : 8 en bon état, 7 nécessitant maintenance.")
+        self.stdout.write(" 5 services regroupant plusieurs objets (M2M).")
         self.stdout.write(" Comptes : alice / bob / charlie / demo (mdp : demo1234)")
         self.stdout.write(" Admin   : admin / admin1234")
         self.stdout.write("")
-        self.stdout.write(" Emails pré-autorisés à s'inscrire :")
-        self.stdout.write("   - acfiren12@gmail.com (parent) → MAIL DE CONFIRMATION")
-        self.stdout.write("   - famille.dupont@gmail.com (parent) → activation auto")
-        self.stdout.write("   - lucas.dupont@gmail.com (enfant) → activation auto")
-        self.stdout.write("   - marie.martin@gmail.com (parent) → activation auto")
+        self.stdout.write(" Whitelist :")
+        self.stdout.write("   - acfiren12@gmail.com (parent) -> OTP par mail requis")
+        self.stdout.write("   - famille.dupont@gmail.com (parent) -> activation auto")
+        self.stdout.write("   - lucas.dupont@gmail.com (enfant) -> activation auto")
+        self.stdout.write("   - marie.martin@gmail.com (parent) -> activation auto")

@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
@@ -13,7 +14,7 @@ class User(AbstractUser):
                      ("avance", "Avancé"), ("expert", "Expert")]
     GENDER_CHOICES = [("M", "Masculin"), ("F", "Féminin"), ("N", "Non précisé")]
 
-    # Profil public (PDF §Visualisation)
+    # Profil public
     age = models.PositiveIntegerField(default=18)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="parent")
     gender = models.CharField(max_length=1, choices=GENDER_CHOICES, default="N")
@@ -26,11 +27,27 @@ class User(AbstractUser):
     nb_connexions = models.PositiveIntegerField(default=0)
     nb_actions = models.PositiveIntegerField(default=0)
 
-    # Validation inscription (admin)
-    is_approved = models.BooleanField(default=True,
-        help_text="Membre validé comme habitant de la maison.")
+    # Validation inscription
+    is_approved = models.BooleanField(default=True)
     email_verified = models.BooleanField(default=True)
     verification_token = models.UUIDField(default=uuid.uuid4, editable=False)
+    # OTP à 6 chiffres + horodatage
+    otp_code = models.CharField(max_length=6, blank=True)
+    otp_created_at = models.DateTimeField(null=True, blank=True)
+
+    OTP_VALIDITY_MINUTES = 15
+
+    def is_otp_valid(self, code):
+        if not self.otp_code or not self.otp_created_at:
+            return False
+        if str(code).strip() != self.otp_code:
+            return False
+        expiry = self.otp_created_at + timedelta(minutes=self.OTP_VALIDITY_MINUTES)
+        return timezone.now() <= expiry
+
+    # OTP à 6 chiffres pour validation par mail
+    otp_code = models.CharField(max_length=6, blank=True, default="")
+    otp_created_at = models.DateTimeField(null=True, blank=True)
 
     LEVEL_THRESHOLDS = {"debutant": 0, "intermediaire": 5, "avance": 10, "expert": 15}
     LEVEL_ORDER = ["debutant", "intermediaire", "avance", "expert"]
@@ -142,7 +159,9 @@ class Device(models.Model):
 
 
 class Service(models.Model):
-    """Outils/services variés proposés par la plateforme (PDF §Visualisation)."""
+    """Outils/services variés proposés par la plateforme.
+    Un service peut être lié à plusieurs objets connectés simultanément.
+    Activer le service active tous ses objets ; désactiver les éteint tous."""
     TYPE_CHOICES = [
         ("energie", "Consommation énergétique"),
         ("securite", "Sécurité"),
@@ -153,13 +172,18 @@ class Service(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField()
     type = models.CharField(max_length=30, choices=TYPE_CHOICES)
-    related_device = models.ForeignKey(Device, on_delete=models.SET_NULL,
-                                       null=True, blank=True)
+    related_devices = models.ManyToManyField(Device, blank=True,
+                                              related_name="services")
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.name
+
+    def has_security_device(self):
+        """True si ce service contient au moins un objet de sécurité."""
+        SECURITY_TYPES = {"alarme", "camera", "porte", "detecteur"}
+        return self.related_devices.filter(type__in=SECURITY_TYPES).exists()
 
 
 # ============================================================
@@ -212,3 +236,24 @@ class Stat(models.Model):
 
     class Meta:
         ordering = ["-date"]
+
+
+# ============================================================
+# WHITELIST (gérée par l'admin)
+# ============================================================
+class WhitelistEntry(models.Model):
+    ROLE_CHOICES = [("parent", "Parent"), ("enfant", "Enfant")]
+    email = models.EmailField(unique=True)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="parent")
+    require_email_verification = models.BooleanField(default=False,
+        help_text="Si oui, un mail OTP sera envoyé à l'inscription.")
+    added_at = models.DateTimeField(auto_now_add=True)
+    note = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta:
+        ordering = ["email"]
+        verbose_name = "Whitelist entry"
+        verbose_name_plural = "Whitelist"
+
+    def __str__(self):
+        return f"{self.email} ({self.role})"

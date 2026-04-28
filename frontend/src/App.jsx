@@ -5,7 +5,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import Verify from "./pages/Verify";
+import VerifyOTP from "./pages/VerifyOTP";
 import Dashboard from "./pages/Dashboard";
 import Devices from "./pages/Devices";
 import DeviceDetail from "./pages/DeviceDetail";
@@ -26,32 +26,27 @@ export default function App() {
     <>
       <Navbar />
       <Routes>
-        {/* Module Information (visiteur) */}
         <Route path="/"             element={<Home />} />
         <Route path="/login"        element={<Login />} />
         <Route path="/register"     element={<Register />} />
-        <Route path="/verify/:token" element={<Verify />} />
+        <Route path="/verify-otp"   element={<VerifyOTP />} />
         <Route path="/devices"      element={<Devices />} />
         <Route path="/services"     element={<Services />} />
 
-        {/* Détail = connecté obligatoire */}
         <Route path="/devices/:id"   element={<ProtectedRoute><DeviceDetail /></ProtectedRoute>} />
         <Route path="/services/:id"  element={<ProtectedRoute><ServiceDetail /></ProtectedRoute>} />
 
-        {/* Module Visualisation */}
         <Route path="/dashboard"    element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/profile"      element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/level"        element={<ProtectedRoute><LevelChange /></ProtectedRoute>} />
         <Route path="/my-requests"  element={<ProtectedRoute><MyRequests /></ProtectedRoute>} />
 
-        {/* Module Gestion (avancé/expert ET pas enfant) */}
         <Route path="/devices/add"       element={<ProtectedRoute requireAdvanced><AddDevice /></ProtectedRoute>} />
         <Route path="/devices/:id/edit"  element={<ProtectedRoute requireAdvanced><EditDevice /></ProtectedRoute>} />
         <Route path="/maintenance"       element={<ProtectedRoute requireAdvanced><Maintenance /></ProtectedRoute>} />
-        <Route path="/history"           element={<ProtectedRoute requireAdvanced><History /></ProtectedRoute>} />
+        <Route path="/history"           element={<ProtectedRoute requireAdmin><History /></ProtectedRoute>} />
         <Route path="/stats"             element={<ProtectedRoute requireAdvanced><Stats /></ProtectedRoute>} />
 
-        {/* Admin */}
         <Route path="/admin-requests" element={<ProtectedRoute><AdminRequests /></ProtectedRoute>} />
       </Routes>
       <footer>

@@ -1,17 +1,31 @@
 import { Navigate } from "react-router-dom";
 import { isLoggedIn, getUser } from "../api";
 
-export default function ProtectedRoute({ children, requireAdvanced = false }) {
+export default function ProtectedRoute({ children, requireAdvanced = false, requireAdmin = false }) {
   if (!isLoggedIn()) return <Navigate to="/login" />;
+  const u = getUser();
+
+  if (requireAdmin) {
+    const isAdminUser = u && (u.is_staff === true || u.username === "admin");
+    if (!isAdminUser) {
+      return (
+        <main className="container" id="main">
+          <h1>Accès refusé</h1>
+          <div className="alert warning">
+            <p>Cette page est réservée à l'<strong>administrateur</strong> de la plateforme.</p>
+          </div>
+        </main>
+      );
+    }
+  }
+
   if (requireAdvanced) {
-    const u = getUser();
-    // Bloquer les enfants peu importe leur niveau
     if (u?.role === "enfant" || u?.is_child) {
       return (
         <main className="container" id="main">
           <h1>Accès refusé</h1>
           <div className="alert warning">
-            <p>🔒 Le module Gestion est réservé aux <strong>adultes (parents)</strong> de la maison.</p>
+            <p>Le module Gestion est réservé aux <strong>parents</strong> de la maison.</p>
             <p>Vous êtes connecté(e) en tant qu'<strong>enfant</strong>. Vous pouvez consulter
                les objets et services, mais pas les modifier ni gérer la maintenance.</p>
           </div>
@@ -31,5 +45,6 @@ export default function ProtectedRoute({ children, requireAdvanced = false }) {
       );
     }
   }
+
   return children;
 }
