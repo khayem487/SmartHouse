@@ -233,8 +233,6 @@ class ProfileView(generics.RetrieveUpdateAPIView):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def list_users(request):
-    if not request.user.is_staff:
-        return Response({"detail": "Admin uniquement."}, status=403)
     users = User.objects.exclude(id=request.user.id)
     return Response(UserSerializer(users, many=True, context={"request": request}).data)
 

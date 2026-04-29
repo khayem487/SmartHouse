@@ -10,6 +10,7 @@ const GENDER_LABEL = { M: "Masculin", F: "Féminin", N: "Non précisé" };
 
 export default function Profile() {
   const [me, setMe] = useState(null);
+  const [others, setOthers] = useState([]);
   const [edit, setEdit] = useState(false);
   const [form, setForm] = useState({});
   const [msg, setMsg] = useState("");
@@ -28,6 +29,7 @@ export default function Profile() {
       setForm(r.data);
       localStorage.setItem("user", JSON.stringify(r.data));
     });
+    API.get("/users/").then((r) => setOthers(r.data)).catch(() => setOthers([]));
   };
 
   useEffect(load, []);
@@ -205,6 +207,30 @@ export default function Profile() {
           <button type="submit">Valider</button>
         </form>
       )}
+
+      <section aria-labelledby="others-t">
+        <h2 id="others-t">Autres membres de la maison</h2>
+        <div className="cards">
+          {others.map((u) => (
+            <article key={u.id} className="card">
+              {u.photo_url ? (
+                <img
+                  src={`${u.photo_url}?v=${photoVer}`}
+                  alt={`Photo de ${u.username}`}
+                  className="profile-photo profile-photo-sm"
+                />
+              ) : (
+                <div className="profile-photo profile-photo-sm profile-photo-empty" aria-hidden="true">👤</div>
+              )}
+              <h3>{u.username}</h3>
+              <p>{u.first_name} {u.last_name}</p>
+              <p><strong>Rôle :</strong> {u.role}</p>
+              <p><strong>Niveau :</strong> {LEVEL_LABEL[u.level] || u.level}</p>
+              <p><strong>Points :</strong> {u.points?.toFixed(2)}</p>
+            </article>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }
