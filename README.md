@@ -43,8 +43,9 @@ npm run dev
 ## Inscription : qui peut s'inscrire ?
 
 **Seuls les emails pré-autorisés** par l'administrateur peuvent créer un compte.
-La liste est définie dans `backend/api/allowed_members.py`. Le **rôle (parent ou enfant)
-est attribué automatiquement** depuis cette liste — l'utilisateur ne le choisit pas.
+La liste est gérée via **Gestion → Gérer utilisateurs** (whitelist),
+avec fallback dans `backend/api/allowed_members.py` pour les seeds.
+Le **rôle (parent ou enfant) est attribué automatiquement** depuis cette liste — l'utilisateur ne le choisit pas.
 
 **Visiteur** : navigue librement sans inscription (filtres, vue d'ensemble),
 mais ne peut pas voir les détails des objets/services.
@@ -92,6 +93,14 @@ mais ne peut pas voir les détails des objets/services.
 | Intermédiaire  | 5      | Information, Visualisation     |
 | Avancé         | 10     | + Gestion                      |
 | Expert         | 15     | + Gestion étendu               |
+
+---
+
+## Services domotiques personnalisés
+
+- Les parents (connectés) peuvent créer des services multi-actions.
+- Exemple: mode théâtre (fermer volets + activer TV/enceinte + couper autres appareils).
+- Chaque service peut être exécuté depuis la page Services.
 
 ---
 
