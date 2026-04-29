@@ -1,7 +1,25 @@
 from pathlib import Path
 from datetime import timedelta
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _load_env_file(path: Path):
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_env_file(BASE_DIR / ".env")
 
 SECRET_KEY = "django-insecure-change-me-in-production"
 DEBUG = True
@@ -106,13 +124,13 @@ CORS_ALLOW_ALL_ORIGINS = True
 # EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 # --- Mode SMTP Gmail (vrais emails) ---
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = "acfiren12@gmail.com"
-EMAIL_HOST_PASSWORD = "aqubxazmdrhjejwc"  # mot de passe d'application Gmail (16 car)
-DEFAULT_FROM_EMAIL = "SmartHouse <acfiren12@gmail.com>"
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", os.getenv("APP_MAIL_HOST", "smtp.gmail.com"))
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", os.getenv("APP_MAIL_PORT", "587")))
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", os.getenv("APP_MAIL_SMTP_STARTTLS", "true")).lower() in ("1", "true", "yes", "on")
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", os.getenv("APP_MAIL_USERNAME", ""))
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", os.getenv("APP_MAIL_PASSWORD", ""))
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", os.getenv("APP_MAIL_FROM", f"SmartHouse <{EMAIL_HOST_USER}>"))
 
 # URL frontend pour les liens dans les emails
-FRONTEND_URL = "http://127.0.0.1:5173"
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:5173")

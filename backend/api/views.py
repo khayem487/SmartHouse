@@ -95,7 +95,6 @@ class RegisterView(generics.CreateAPIView):
             "email": user.email,
             "role": user.role,
             "email_sent": sent,
-            "dev_code": user.verification_code if (settings.DEBUG and not sent) else None,
             "message": (
                 "Inscription réussie ! Un code de vérification à 6 chiffres a été envoyé. "
                 "Saisissez ce code pour activer votre compte."
@@ -206,13 +205,10 @@ def resend_verification(request):
     if user.email_verified:
         return Response({"detail": "Cet email est déjà validé."}, status=400)
     sent = send_verification_email(user)
-    payload = {
+    return Response({
         "detail": "Code renvoyé par email." if sent else "Erreur d'envoi.",
         "sent": sent,
-    }
-    if settings.DEBUG and not sent:
-        payload["dev_code"] = user.verification_code
-    return Response(payload)
+    })
 
 
 # ============================================================
