@@ -77,53 +77,6 @@ export default function Register() {
     }
   };
 
-  if (success) {
-    return (
-      <main className="container" id="main">
-        <div className="form" style={{ textAlign: "center" }}>
-          <h2>Inscription réussie</h2>
-          <div className="alert success" style={{ textAlign: "left" }}>
-            <p>Compte créé pour <strong>{success.username}</strong>.</p>
-            <p>Un code de vérification a été envoyé à :</p>
-            <p style={{ marginTop: 8 }}><strong>{success.email}</strong></p>
-            <p style={{ marginTop: 8 }}>Rôle attribué automatiquement : <strong>{success.role}</strong></p>
-          </div>
-
-          {!success.email_sent && (
-            <div className="alert warning">
-              L'envoi email a échoué côté serveur. Clique sur « Renvoyer le code ».
-            </div>
-          )}
-
-          <div style={{ textAlign: "left", marginTop: "0.8rem" }}>
-            <label htmlFor="code">Code OTP (6 chiffres)</label>
-            <input
-              id="code"
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              value={verifyCode}
-              onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-            />
-            <button className="btn" style={{ width: "100%", marginTop: "0.6rem" }} onClick={confirmCode} disabled={verifyLoading}>
-              {verifyLoading ? "Validation..." : "Valider le code"}
-            </button>
-            <button className="btn ghost" style={{ width: "100%", marginTop: "0.6rem" }} onClick={resendCode} disabled={verifyLoading}>
-              Renvoyer le code
-            </button>
-            {verifyMsg && <div className="alert success" style={{ marginTop: "0.8rem" }}>{verifyMsg}</div>}
-            {verifyErr && <div className="alert error" style={{ marginTop: "0.8rem" }}>{verifyErr}</div>}
-          </div>
-
-          <p style={{ marginTop: "1rem" }}>
-            <Link to="/verify" className="btn secondary">Ouvrir la page vérification</Link>
-          </p>
-        </div>
-      </main>
-    );
-  }
-
   return (
     <main className="container" id="main">
       <form className="form" onSubmit={submit} aria-labelledby="reg-title">
@@ -167,10 +120,53 @@ export default function Register() {
         <input id="dn" type="date" value={form.date_naissance}
                onChange={(e) => set("date_naissance", e.target.value)} />
 
-        <button type="submit" disabled={loading}>
-          {loading ? "Envoi…" : "S'inscrire"}
+        <button type="submit" disabled={loading || !!success}>
+          {loading ? "Envoi…" : success ? "Inscription envoyée" : "S'inscrire"}
         </button>
         {error && <p className="error" role="alert">{error}</p>}
+
+        {success && (
+          <div style={{ marginTop: "1rem" }}>
+            <div className="alert success" style={{ textAlign: "left" }}>
+              <p>Compte créé pour <strong>{success.username}</strong>.</p>
+              <p>Un code de vérification a été envoyé à :</p>
+              <p style={{ marginTop: 8 }}><strong>{success.email}</strong></p>
+              <p style={{ marginTop: 8 }}>Rôle attribué automatiquement : <strong>{success.role}</strong></p>
+            </div>
+
+            {!success.email_sent && (
+              <div className="alert warning">
+                L'envoi email a échoué côté serveur. Clique sur « Renvoyer le code ».
+              </div>
+            )}
+
+            <div style={{ textAlign: "left", marginTop: "0.8rem" }}>
+              <label htmlFor="code">Code OTP (6 chiffres)</label>
+              <input
+                id="code"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                value={verifyCode}
+                onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              />
+              <button className="btn" type="button" style={{ width: "100%", marginTop: "0.6rem" }} onClick={confirmCode} disabled={verifyLoading}>
+                {verifyLoading ? "Validation..." : "Valider le code"}
+              </button>
+              <button className="btn ghost" type="button" style={{ width: "100%", marginTop: "0.6rem" }} onClick={resendCode} disabled={verifyLoading}>
+                Renvoyer le code
+              </button>
+              {verifyMsg && <div className="alert success" style={{ marginTop: "0.8rem" }}>{verifyMsg}</div>}
+              {verifyErr && <div className="alert error" style={{ marginTop: "0.8rem" }}>{verifyErr}</div>}
+            </div>
+
+            <p style={{ marginTop: "1rem" }}>
+              <Link to="/verify" className="btn secondary">Ouvrir la page vérification</Link>
+            </p>
+          </div>
+        )}
+
         <p style={{ marginTop: "1rem", textAlign: "center" }}>
           Déjà un compte ? <Link to="/login">Connecte-toi</Link>
         </p>
