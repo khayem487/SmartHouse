@@ -69,7 +69,8 @@ export default function Register() {
     setVerifyLoading(true);
     try {
       const { data } = await API.post("/resend-verification/", { email: success.email });
-      setVerifyMsg(data.detail || "Code renvoyé.");
+      const fallback = data.dev_code ? ` Code de test (dev) : ${data.dev_code}` : "";
+      setVerifyMsg((data.detail || "Code renvoyé.") + fallback);
     } catch (err) {
       setVerifyErr(err.response?.data?.detail || "Impossible de renvoyer le code.");
     } finally {
@@ -91,7 +92,12 @@ export default function Register() {
 
           {!success.email_sent && (
             <div className="alert warning">
-              L'envoi email a échoué côté serveur. Tu peux renvoyer un code ci-dessous.
+              <p>L'envoi email a échoué côté serveur. Tu peux renvoyer un code ci-dessous.</p>
+              {success.dev_code && (
+                <p style={{ marginTop: 8 }}>
+                  Code de test (dev) : <strong>{success.dev_code}</strong>
+                </p>
+              )}
             </div>
           )}
 

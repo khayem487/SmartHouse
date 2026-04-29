@@ -52,7 +52,8 @@ export default function Verify() {
     try {
       const { data } = await API.post("/resend-verification/", { email });
       setStatus("idle");
-      setMsg(data.detail || "Code renvoyé.");
+      const fallback = data.dev_code ? ` Code de test (dev) : ${data.dev_code}` : "";
+      setMsg((data.detail || "Code renvoyé.") + fallback);
     } catch (err) {
       setStatus("error");
       setMsg(err.response?.data?.detail || "Impossible de renvoyer le code.");
