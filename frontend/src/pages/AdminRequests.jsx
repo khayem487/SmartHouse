@@ -115,7 +115,7 @@ export default function AdminRequests() {
         </div>
       )}
 
-      <p style={{ marginTop: "1.5rem" }}>
+      <p className="mt-2">
         <Link to="/dashboard" className="btn ghost">← Retour au tableau de bord</Link>
       </p>
     </main>

@@ -48,8 +48,7 @@ export default function LevelChange() {
           const isCurrent = me.level === l.key;
           const unlocked = canChoose(l);
           return (
-            <article key={l.key} className="card"
-                     style={isCurrent ? { borderLeft: "4px solid #059669" } : {}}>
+            <article key={l.key} className={"card " + (isCurrent ? "current-level-card" : "")}>
               <h3>{l.name} {isCurrent && "⭐"}</h3>
               <p><strong>Points requis :</strong> {l.min}</p>
               <p>{l.desc}</p>

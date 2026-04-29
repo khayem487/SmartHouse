@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+import random
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
@@ -31,23 +31,8 @@ class User(AbstractUser):
     is_approved = models.BooleanField(default=True)
     email_verified = models.BooleanField(default=True)
     verification_token = models.UUIDField(default=uuid.uuid4, editable=False)
-    # OTP à 6 chiffres + horodatage
-    otp_code = models.CharField(max_length=6, blank=True)
-    otp_created_at = models.DateTimeField(null=True, blank=True)
-
-    OTP_VALIDITY_MINUTES = 15
-
-    def is_otp_valid(self, code):
-        if not self.otp_code or not self.otp_created_at:
-            return False
-        if str(code).strip() != self.otp_code:
-            return False
-        expiry = self.otp_created_at + timedelta(minutes=self.OTP_VALIDITY_MINUTES)
-        return timezone.now() <= expiry
-
-    # OTP à 6 chiffres pour validation par mail
-    otp_code = models.CharField(max_length=6, blank=True, default="")
-    otp_created_at = models.DateTimeField(null=True, blank=True)
+    verification_code = models.CharField(max_length=6, blank=True, default="")
+    verification_code_sent_at = models.DateTimeField(null=True, blank=True)
 
     LEVEL_THRESHOLDS = {"debutant": 0, "intermediaire": 5, "avance": 10, "expert": 15}
     LEVEL_ORDER = ["debutant", "intermediaire", "avance", "expert"]
@@ -84,6 +69,10 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.username
+
+    def regenerate_verification_code(self):
+        self.verification_code = f"{random.randint(0, 999999):06d}"
+        self.verification_code_sent_at = timezone.now()
 
 
 # ============================================================
@@ -175,6 +164,8 @@ class Service(models.Model):
     related_devices = models.ManyToManyField(Device, blank=True,
                                               related_name="services")
     active = models.BooleanField(default=True)
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name="created_services")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -239,21 +230,83 @@ class Stat(models.Model):
 
 
 # ============================================================
-# WHITELIST (gérée par l'admin)
+# SCENARIOS (automations)
 # ============================================================
-class WhitelistEntry(models.Model):
-    ROLE_CHOICES = [("parent", "Parent"), ("enfant", "Enfant")]
+class Scenario(models.Model):
+    TRIGGER_CHOICES = [
+        ("time", "Horaire fixe"),
+        ("device_on", "Quand un objet s'allume"),
+        ("device_off", "Quand un objet s'éteint"),
+        ("manual", "Manuel uniquement"),
+    ]
+    ACTION_CHOICES = [
+        ("toggle", "Basculer l'état"),
+        ("turn_on", "Allumer"),
+        ("turn_off", "Éteindre"),
+        ("set_value", "Régler une valeur"),
+    ]
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    trigger_type = models.CharField(max_length=20, choices=TRIGGER_CHOICES, default="manual")
+    trigger_time = models.TimeField(null=True, blank=True, help_text="Heure de déclenchement (si trigger Horaire)")
+    trigger_device = models.ForeignKey("Device", on_delete=models.SET_NULL, null=True, blank=True,
+                                       related_name="trigger_scenarios")
+    action_type = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    action_device = models.ForeignKey("Device", on_delete=models.CASCADE, related_name="scenarios")
+    action_value = models.FloatField(null=True, blank=True, help_text="Valeur pour set_value (ex: 22°C)")
+    active = models.BooleanField(default=True)
+    last_run = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey("User", on_delete=models.CASCADE, related_name="scenarios")
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        ordering = ["name"]
+
+
+class ServiceAction(models.Model):
+    ACTION_CHOICES = [
+        ("turn_on", "Allumer"),
+        ("turn_off", "Éteindre"),
+        ("toggle", "Basculer"),
+        ("set_value", "Régler une valeur"),
+        ("open", "Ouvrir (volet)"),
+        ("close", "Fermer (volet)"),
+    ]
+
+    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name="actions")
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name="service_actions")
+    action_type = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    action_value = models.FloatField(null=True, blank=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"{self.service.name} -> {self.device.name} ({self.action_type})"
+
+
+# ============================================================
+# ALLOWED MEMBERS (admin-managed whitelist)
+# ============================================================
+class AllowedMember(models.Model):
+    ROLE_CHOICES = [
+        ("parent", "Parent"),
+        ("enfant", "Enfant"),
+    ]
+
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="parent")
-    require_email_verification = models.BooleanField(default=False,
-        help_text="Si oui, un mail OTP sera envoyé à l'inscription.")
-    added_at = models.DateTimeField(auto_now_add=True)
-    note = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["email"]
-        verbose_name = "Whitelist entry"
-        verbose_name_plural = "Whitelist"
+
+    def save(self, *args, **kwargs):
+        self.email = (self.email or "").lower().strip()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.email} ({self.role})"

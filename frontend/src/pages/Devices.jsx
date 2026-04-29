@@ -34,11 +34,21 @@ export default function Devices() {
 
   const set = (k, v) => setFilters({ ...filters, [k]: v });
 
-  // Visiteur : redirect direct vers /login (comme pour Services)
-  const handleClick = (id) => {
-    if (logged) nav(`/devices/${id}`);
-    else nav("/login");
-  };
+  const CardContent = ({ d }) => (
+    <>
+      <h3>{d.name}</h3>
+      <p><strong>Type :</strong> {d.type_display}</p>
+      <p><strong>Pièce :</strong> {d.room_name || "—"}</p>
+      <p><strong>Marque :</strong> {d.brand || "—"}</p>
+      <p><strong>Batterie :</strong> {d.battery}%</p>
+      <p>
+        <span className={"badge " + d.status}>{d.status_display}</span>
+        {d.needs_maintenance && (
+          <span className="badge warning ml-xs">⚠ maintenance</span>
+        )}
+      </p>
+    </>
+  );
 
   return (
     <main className="container" id="main">
@@ -79,27 +89,19 @@ export default function Devices() {
 
       <div className="cards">
         {devices.map((d) => (
-          <article key={d.id} className="card"
-                   role="button" tabIndex={0}
-                   style={{ cursor: "pointer" }}
-                   onClick={() => handleClick(d.id)}
-                   onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleClick(d.id)}
-                   aria-label={`Voir ${d.name}`}>
-            <h3>{d.name}</h3>
-            <p><strong>Type :</strong> {d.type_display}</p>
-            <p><strong>Pièce :</strong> {d.room_name || "—"}</p>
-            <p><strong>Marque :</strong> {d.brand || "—"}</p>
-            <p><strong>Batterie :</strong> {d.battery}%</p>
-            <p>
-              <span className={"badge " + d.status}>{d.status_display}</span>
-              {d.needs_maintenance && (
-                <span className="badge warning" style={{ marginLeft: 5 }}>⚠ maintenance</span>
-              )}
-              {d.is_security && (
-                <span className="badge info" style={{ marginLeft: 5 }}>🔒</span>
-              )}
-            </p>
-          </article>
+          logged ? (
+            <Link key={d.id} to={`/devices/${d.id}`} className="card">
+              <CardContent d={d} />
+            </Link>
+          ) : (
+            <article key={d.id} className="card visitor-card"
+                     aria-label="Détails réservés aux membres connectés">
+              <CardContent d={d} />
+              <p className="card-note">
+                🔒 Connectez-vous pour voir les détails
+              </p>
+            </article>
+          )
         ))}
       </div>
     </main>

@@ -43,7 +43,7 @@ export default function MyRequests() {
         </div>
       )}
 
-      <p style={{ marginTop: "1.5rem" }}>
+      <p className="mt-2">
         <Link to="/devices" className="btn ghost">← Retour aux objets</Link>
       </p>
     </main>

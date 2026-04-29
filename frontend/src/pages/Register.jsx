@@ -13,6 +13,11 @@ export default function Register() {
   const [success, setSuccess] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  const [verifyCode, setVerifyCode] = useState("");
+  const [verifyMsg, setVerifyMsg] = useState("");
+  const [verifyErr, setVerifyErr] = useState("");
+  const [verifyLoading, setVerifyLoading] = useState(false);
+
   const set = (k, v) => setForm({ ...form, [k]: v });
 
   const submit = async (e) => {
@@ -22,12 +27,6 @@ export default function Register() {
     setLoading(true);
     try {
       const { data } = await API.post("/register/", form);
-      // Si OTP requis, redirige vers la page de vérification
-      if (data.needs_mail) {
-        nav(`/verify-otp?email=${encodeURIComponent(data.email)}`);
-        return;
-      }
-      // Sinon affichage simple de confirmation
       setSuccess(data);
     } catch (err) {
       const data = err.response?.data;
@@ -41,19 +40,84 @@ export default function Register() {
     }
   };
 
+  const confirmCode = async () => {
+    setVerifyErr("");
+    setVerifyMsg("");
+    if (!success?.email) {
+      setVerifyErr("Email manquant.");
+      return;
+    }
+    if (verifyCode.length !== 6) {
+      setVerifyErr("Le code doit contenir 6 chiffres.");
+      return;
+    }
+    setVerifyLoading(true);
+    try {
+      const { data } = await API.post("/verify-code/", { email: success.email, code: verifyCode });
+      setVerifyMsg(data.detail || "Compte activé.");
+      setTimeout(() => nav("/login"), 1000);
+    } catch (err) {
+      setVerifyErr(err.response?.data?.detail || "Code invalide.");
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
+  const resendCode = async () => {
+    setVerifyErr("");
+    setVerifyMsg("");
+    setVerifyLoading(true);
+    try {
+      const { data } = await API.post("/resend-verification/", { email: success.email });
+      setVerifyMsg(data.detail || "Code renvoyé.");
+    } catch (err) {
+      setVerifyErr(err.response?.data?.detail || "Impossible de renvoyer le code.");
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
   if (success) {
     return (
       <main className="container" id="main">
         <div className="form" style={{ textAlign: "center" }}>
           <h2>Inscription réussie</h2>
           <div className="alert success" style={{ textAlign: "left" }}>
-            <p>Bonjour <strong>{success.username}</strong>,</p>
-            <p>Votre compte a été créé.</p>
-            <p>Rôle attribué : <strong>{success.role}</strong></p>
-            <p>{success.message}</p>
+            <p>Compte créé pour <strong>{success.username}</strong>.</p>
+            <p>Un code de vérification a été envoyé à :</p>
+            <p style={{ marginTop: 8 }}><strong>{success.email}</strong></p>
+            <p style={{ marginTop: 8 }}>Rôle attribué automatiquement : <strong>{success.role}</strong></p>
           </div>
-          <p>
-            <Link to="/login" className="btn">Aller à la page de connexion</Link>
+
+          {!success.email_sent && (
+            <div className="alert warning">
+              L'envoi email a échoué côté serveur. Tu peux renvoyer un code ci-dessous.
+            </div>
+          )}
+
+          <div style={{ textAlign: "left", marginTop: "0.8rem" }}>
+            <label htmlFor="code">Code à 6 chiffres</label>
+            <input
+              id="code"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              value={verifyCode}
+              onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            />
+            <button className="btn" style={{ width: "100%", marginTop: "0.6rem" }} onClick={confirmCode} disabled={verifyLoading}>
+              {verifyLoading ? "Validation..." : "Valider le code"}
+            </button>
+            <button className="btn ghost" style={{ width: "100%", marginTop: "0.6rem" }} onClick={resendCode} disabled={verifyLoading}>
+              Renvoyer le code
+            </button>
+            {verifyMsg && <div className="alert success" style={{ marginTop: "0.8rem" }}>{verifyMsg}</div>}
+            {verifyErr && <div className="alert error" style={{ marginTop: "0.8rem" }}>{verifyErr}</div>}
+          </div>
+
+          <p style={{ marginTop: "1rem" }}>
+            <Link to="/verify" className="btn secondary">Ouvrir la page vérification</Link>
           </p>
         </div>
       </main>
@@ -66,9 +130,7 @@ export default function Register() {
         <h2 id="reg-title">Inscription</h2>
 
         <div className="alert info">
-          <strong>Seuls les membres de la maison peuvent s'inscrire.</strong><br/>
-          Votre email doit avoir été pré-autorisé par l'administrateur.
-          Le rôle (parent ou enfant) est attribué automatiquement.
+          Seuls les membres autorisés peuvent s'inscrire. Le rôle est attribué automatiquement.
         </div>
 
         <label htmlFor="u">Nom d'utilisateur (pseudo)</label>
@@ -110,7 +172,7 @@ export default function Register() {
         </button>
         {error && <p className="error" role="alert">{error}</p>}
         <p style={{ marginTop: "1rem", textAlign: "center" }}>
-          Déjà un compte ? <Link to="/login">Connectez-vous</Link>
+          Déjà un compte ? <Link to="/login">Connecte-toi</Link>
         </p>
       </form>
     </main>

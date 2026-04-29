@@ -1,11 +1,11 @@
 import csv
-import random
+from datetime import timedelta
 from django.conf import settings
 from django.core.mail import send_mail
 from django.http import HttpResponse
 from django.db.models import Sum, Q
 from django.utils import timezone
-from rest_framework import generics, viewsets, status, serializers as drf_serializers
+from rest_framework import generics, viewsets, status
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -14,77 +14,47 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import (User, Room, Device, Action, Stat,
-                     Category, Service, DeletionRequest, WhitelistEntry)
+                     Category, Service, ServiceAction, DeletionRequest, Scenario, AllowedMember)
 from .serializers import (UserRegisterSerializer, UserSerializer,
                           RoomSerializer, DeviceSerializer, ActionSerializer,
                           StatSerializer, CategorySerializer, ServiceSerializer,
                           DeletionRequestSerializer, PasswordChangeSerializer,
-                          OTPVerifySerializer, WhitelistEntrySerializer)
-from .allowed_members import requires_email_verification
+                          ScenarioSerializer, AllowedMemberSerializer)
+from .scenario_engine import execute_scenario
 
 
 # ============================================================
-# HELPER : génération et envoi du code OTP
+# HELPER : envoi de l'email de validation
 # ============================================================
-def generate_otp():
-    return f"{random.randint(0, 999999):06d}"
+def send_verification_email(user):
+    """Envoie un code de vérification à 6 chiffres."""
+    user.regenerate_verification_code()
+    user.save(update_fields=["verification_code", "verification_code_sent_at"])
 
-
-def send_otp_email(user):
-    code = generate_otp()
-    user.otp_code = code
-    user.otp_created_at = timezone.now()
-    user.save()
-
-    subject = "Votre code d'activation SmartHouse"
+    subject = "Code de verification - Maison Intelligente"
     message = f"""Bonjour {user.first_name or user.username},
 
-Bienvenue sur SmartHouse !
+Votre code de verification est : {user.verification_code}
 
-Voici votre code d'activation à 6 chiffres :
+Ce code expire dans 15 minutes.
 
-    {code}
+Pseudo : {user.username}
+Role attribue : {user.get_role_display()}
 
-Saisissez ce code sur la page d'activation pour finaliser votre inscription.
-
-Ce code est valable 30 minutes.
-
-Si vous n'êtes pas à l'origine de cette inscription, ignorez ce mail.
-
-— L'équipe SmartHouse (CY Tech ING1 2025-2026)
+Si vous n'etes pas a l'origine de cette inscription, ignorez cet email.
 """
 
     html_message = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: linear-gradient(135deg, #065f46, #059669);
-                  color: white; padding: 30px; text-align: center; border-radius: 12px 12px 0 0;">
-        <h1 style="margin: 0;">SmartHouse</h1>
-        <p style="margin: 10px 0 0; opacity: 0.9;">Code d'activation</p>
+      <div style="background: linear-gradient(135deg, #26215C, #4f46e5); color: white; padding: 24px; text-align: center; border-radius: 12px 12px 0 0;">
+        <h1 style="margin: 0;">Maison Intelligente</h1>
+        <p style="margin: 8px 0 0; opacity: 0.9;">Verification de compte</p>
       </div>
-      <div style="background: white; padding: 30px; border: 1px solid #e5e7eb;
-                  border-top: none; border-radius: 0 0 12px 12px;">
+      <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
         <p>Bonjour <strong>{user.first_name or user.username}</strong>,</p>
-        <p>Voici votre code d'activation à saisir dans la page d'inscription :</p>
-        <p style="text-align: center; margin: 30px 0;">
-          <span style="font-size: 2.5em; letter-spacing: 0.4em; font-weight: bold;
-                       color: #065f46; background: #d1fae5; padding: 20px 30px;
-                       border-radius: 8px; display: inline-block; font-family: monospace;">
-            {code}
-          </span>
-        </p>
-        <p style="color: #666; font-size: 0.9em; text-align: center;">
-          Code valable 30 minutes.
-        </p>
-        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
-        <p style="color: #666; font-size: 0.85em;">
-          <strong>Vos informations :</strong><br>
-          Pseudo : {user.username}<br>
-          Rôle attribué : <strong>{user.get_role_display()}</strong>
-        </p>
-        <p style="color: #999; font-size: 0.8em; margin-top: 30px;">
-          Si vous n'êtes pas à l'origine de cette inscription, ignorez ce mail.<br>
-          — SmartHouse · CY Tech ING1 2025-2026
-        </p>
+        <p>Utilisez ce code a 6 chiffres dans le formulaire d'inscription :</p>
+        <p style="font-size: 34px; letter-spacing: 8px; font-weight: 700; text-align: center; margin: 20px 0;">{user.verification_code}</p>
+        <p style="color: #555;">Ce code expire dans <strong>15 minutes</strong>.</p>
       </div>
     </div>
     """
@@ -100,7 +70,8 @@ Si vous n'êtes pas à l'origine de cette inscription, ignorez ce mail.
         )
         return True
     except Exception as e:
-        print(f"Erreur envoi OTP à {user.email} : {e}")
+        # On log mais on n'empêche pas l'inscription
+        print(f"⚠ Erreur envoi email à {user.email} : {e}")
         return False
 
 
@@ -116,95 +87,30 @@ class RegisterView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        needs_mail = getattr(user, "_needs_mail", False)
-
-        sent = False
-        if needs_mail:
-            sent = send_otp_email(user)
-            message = ("Inscription reussie. Un code à 6 chiffres a été envoyé "
-                       "par mail. Saisissez-le pour activer votre compte.")
-        else:
-            message = ("Inscription reussie. Votre compte sera activé "
-                       "automatiquement à votre première connexion.")
-
+        # Envoie le mail de validation
+        sent = send_verification_email(user)
         return Response({
             "id": user.id,
             "username": user.username,
             "email": user.email,
             "role": user.role,
-            "needs_mail": needs_mail,
             "email_sent": sent,
-            "message": message,
+            "message": (
+                "Inscription réussie ! Un code de vérification à 6 chiffres a été envoyé. "
+                "Saisissez ce code pour activer votre compte."
+            ),
         }, status=status.HTTP_201_CREATED)
-
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def verify_otp(request):
-    """Vérifie le code OTP à 6 chiffres et active le compte."""
-    s = OTPVerifySerializer(data=request.data)
-    s.is_valid(raise_exception=True)
-    email = s.validated_data["email"].lower().strip()
-    code = s.validated_data["code"].strip()
-
-    try:
-        user = User.objects.get(email__iexact=email)
-    except User.DoesNotExist:
-        return Response({"detail": "Aucun compte avec cet email."}, status=400)
-
-    if user.email_verified:
-        return Response({"detail": "Ce compte est déjà activé.", "already": True})
-
-    if not user.otp_code or user.otp_code != code:
-        return Response({"detail": "Code incorrect. Vérifiez votre mail."}, status=400)
-
-    # Vérifier expiration (30 min)
-    if user.otp_created_at:
-        elapsed = (timezone.now() - user.otp_created_at).total_seconds()
-        if elapsed > 30 * 60:
-            return Response(
-                {"detail": "Code expiré. Demandez un nouveau code."},
-                status=400)
-
-    user.email_verified = True
-    user.otp_code = ""
-    user.save()
-    return Response({
-        "detail": f"Compte activé pour {user.username}. Vous pouvez vous connecter.",
-        "username": user.username,
-    })
-
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def resend_otp(request):
-    """Renvoie un nouveau code OTP."""
-    email = request.data.get("email", "").lower().strip()
-    try:
-        user = User.objects.get(email__iexact=email)
-    except User.DoesNotExist:
-        return Response({"detail": "Aucun compte avec cet email."}, status=404)
-    if user.email_verified:
-        return Response({"detail": "Ce compte est déjà activé."}, status=400)
-    sent = send_otp_email(user)
-    return Response({"detail": "Nouveau code envoyé." if sent else "Erreur d'envoi.",
-                     "sent": sent})
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
         user = self.user
-
+        # Bloquer si email pas vérifié
         if not user.email_verified and not user.is_superuser:
-            if not requires_email_verification(user.email):
-                user.email_verified = True
-                user.save()
-            else:
-                raise drf_serializers.ValidationError(
-                    "Votre email n'a pas encore été validé. "
-                    "Saisissez le code reçu par mail pour activer votre compte.")
-
+            raise serializers.ValidationError(
+                "Votre email n'a pas encore été validé. "
+                "Saisissez le code a 6 chiffres recu par email pour activer votre compte.")
         user.points = (user.points or 0) + 0.25
         user.nb_connexions = (user.nb_connexions or 0) + 1
         user.save()
@@ -213,6 +119,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         ctx = {"request": self.context.get("request")}
         data["user"] = UserSerializer(user, context=ctx).data
         return data
+
+
+# Import nécessaire pour l'erreur ci-dessus
+from rest_framework import serializers
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
@@ -229,6 +139,74 @@ def change_password(request):
     request.user.set_password(s.validated_data["new_password"])
     request.user.save()
     return Response({"detail": "Mot de passe modifié avec succès."})
+
+
+@api_view(["GET", "POST"])
+@permission_classes([AllowAny])
+def verify_email(request, token):
+    try:
+        user = User.objects.get(verification_token=token)
+    except User.DoesNotExist:
+        return Response({"detail": "Lien de validation invalide ou expiré."},
+                        status=400)
+    if user.email_verified:
+        return Response({"detail": "Cet email est déjà validé.", "already": True})
+    user.email_verified = True
+    user.save()
+    return Response({
+        "detail": f"✔ Email validé pour {user.username}. Vous pouvez maintenant vous connecter.",
+        "username": user.username,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def verify_code(request):
+    email = request.data.get("email", "").lower().strip()
+    code = str(request.data.get("code", "")).strip()
+    if not email or not code:
+        return Response({"detail": "Email et code requis."}, status=400)
+
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        return Response({"detail": "Aucun compte trouvé pour cet email."}, status=404)
+
+    if user.email_verified:
+        return Response({"detail": "Cet email est déjà validé.", "already": True})
+
+    if not user.verification_code:
+        return Response({"detail": "Aucun code actif. Demandez un nouveau code."}, status=400)
+
+    if not user.verification_code_sent_at or timezone.now() - user.verification_code_sent_at > timedelta(minutes=15):
+        return Response({"detail": "Code expiré. Demandez un nouveau code."}, status=400)
+
+    if code != user.verification_code:
+        return Response({"detail": "Code invalide."}, status=400)
+
+    user.email_verified = True
+    user.verification_code = ""
+    user.save(update_fields=["email_verified", "verification_code"])
+    return Response({
+        "detail": f"Email validé pour {user.username}. Vous pouvez maintenant vous connecter.",
+        "username": user.username,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def resend_verification(request):
+    """Renvoie le code de validation 6 chiffres."""
+    email = request.data.get("email", "").lower().strip()
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        return Response({"detail": "Aucun compte trouvé avec cet email."}, status=404)
+    if user.email_verified:
+        return Response({"detail": "Cet email est déjà validé."}, status=400)
+    sent = send_verification_email(user)
+    return Response({"detail": "Code renvoyé par email." if sent else "Erreur d'envoi.",
+                     "sent": sent})
 
 
 # ============================================================
@@ -255,61 +233,48 @@ class ProfileView(generics.RetrieveUpdateAPIView):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def list_users(request):
+    if not request.user.is_staff:
+        return Response({"detail": "Admin uniquement."}, status=403)
     users = User.objects.exclude(id=request.user.id)
     return Response(UserSerializer(users, many=True, context={"request": request}).data)
 
 
-# ----- ADMIN actions sur utilisateurs ---------
-@api_view(["POST"])
+@api_view(["PATCH"])
 @permission_classes([IsAuthenticated])
-def admin_suspend_user(request, user_id):
+def admin_toggle_user(request, user_id):
+    """Admin only: approve or suspend any user account."""
     if not request.user.is_staff:
-        return Response({"detail": "Admin uniquement"}, status=403)
+        return Response({"detail": "Admin uniquement."}, status=403)
     try:
-        user = User.objects.get(pk=user_id)
+        target = User.objects.get(pk=user_id)
     except User.DoesNotExist:
-        return Response({"detail": "Utilisateur introuvable"}, status=404)
-    if user.is_superuser:
-        return Response({"detail": "Impossible de suspendre un super-utilisateur"},
-                        status=400)
-    user.email_verified = False
-    user.save()
-    return Response({"detail": f"Utilisateur {user.username} suspendu."})
-
-
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def admin_unsuspend_user(request, user_id):
-    if not request.user.is_staff:
-        return Response({"detail": "Admin uniquement"}, status=403)
-    try:
-        user = User.objects.get(pk=user_id)
-    except User.DoesNotExist:
-        return Response({"detail": "Utilisateur introuvable"}, status=404)
-    user.email_verified = True
-    user.save()
-    return Response({"detail": f"Utilisateur {user.username} réactivé."})
+        return Response({"detail": "Utilisateur introuvable."}, status=404)
+    approved = request.data.get("approved")
+    if approved is None:
+        return Response({"detail": "Champ 'approved' requis."}, status=400)
+    target.is_approved = bool(approved)
+    target.save()
+    return Response({
+        "detail": f"{'Compte approuvé' if target.is_approved else 'Compte suspendu'}.",
+        "is_approved": target.is_approved,
+        "username": target.username,
+    })
 
 
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
 def admin_delete_user(request, user_id):
-    """Supprime définitivement un utilisateur (l'email reste en whitelist)."""
     if not request.user.is_staff:
-        return Response({"detail": "Admin uniquement"}, status=403)
+        return Response({"detail": "Admin uniquement."}, status=403)
+    if request.user.id == user_id:
+        return Response({"detail": "Impossible de supprimer votre propre compte admin."}, status=400)
     try:
-        user = User.objects.get(pk=user_id)
+        target = User.objects.get(pk=user_id)
     except User.DoesNotExist:
-        return Response({"detail": "Utilisateur introuvable"}, status=404)
-    if user.is_superuser:
-        return Response({"detail": "Impossible de supprimer un super-utilisateur"},
-                        status=400)
-    if user.id == request.user.id:
-        return Response({"detail": "Impossible de se supprimer soi-même"},
-                        status=400)
-    username = user.username
-    user.delete()
-    return Response({"detail": f"Utilisateur {username} supprimé définitivement."})
+        return Response({"detail": "Utilisateur introuvable."}, status=404)
+    username = target.username
+    target.delete()
+    return Response({"detail": f"Utilisateur '{username}' supprimé."})
 
 
 @api_view(["POST"])
@@ -326,35 +291,6 @@ def set_level(request):
     Action.objects.create(user=u, action_type="level_change",
                           description=f"Niveau changé : {old} -> {target}")
     return Response(UserSerializer(u, context={"request": request}).data)
-
-
-# ============================================================
-# WHITELIST (admin uniquement)
-# ============================================================
-class WhitelistViewSet(viewsets.ModelViewSet):
-    queryset = WhitelistEntry.objects.all()
-    serializer_class = WhitelistEntrySerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        if not self.request.user.is_staff:
-            return WhitelistEntry.objects.none()
-        return super().get_queryset()
-
-    def create(self, request, *args, **kwargs):
-        if not request.user.is_staff:
-            return Response({"detail": "Admin uniquement"}, status=403)
-        return super().create(request, *args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        if not request.user.is_staff:
-            return Response({"detail": "Admin uniquement"}, status=403)
-        return super().update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        if not request.user.is_staff:
-            return Response({"detail": "Admin uniquement"}, status=403)
-        return super().destroy(request, *args, **kwargs)
 
 
 # ============================================================
@@ -414,8 +350,9 @@ class DeviceViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(instance).data)
 
     def perform_create(self, serializer):
+        # Restriction enfant
         if self.request.user.is_child():
-            raise drf_serializers.ValidationError(
+            raise serializers.ValidationError(
                 "Les enfants ne peuvent pas ajouter d'objets.")
         device = serializer.save(user=self.request.user)
         self.request.user.nb_actions += 1
@@ -425,7 +362,7 @@ class DeviceViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         if self.request.user.is_child():
-            raise drf_serializers.ValidationError(
+            raise serializers.ValidationError(
                 "Les enfants ne peuvent pas modifier les objets.")
         device = serializer.save()
         self.request.user.nb_actions += 1
@@ -469,15 +406,134 @@ def toggle_device(request, pk):
         return Response({"detail": "Non trouvé"}, status=404)
     if not request.user.can_toggle_device(device):
         return Response(
-            {"detail": "Les enfants ne peuvent pas activer ou désactiver "
+            {"detail": "🔒 Les enfants ne peuvent pas activer/désactiver "
                        "les objets de sécurité (alarme, caméra, porte, détecteur)."},
             status=403)
-    device.status = "on" if device.status == "off" else "off"
-    device.save()
+
+    # Support specific actions per type
+    action_type = request.data.get("action")
+    if action_type:
+        value = request.data.get("value")
+        # Thermostat
+        if device.type == "thermostat" and action_type in ("increase", "decrease"):
+            delta = 1.0 if action_type == "increase" else -1.0
+            device.value = max(10, min(35, (device.value or 20) + delta))
+            device.target_value = device.value
+            device.save()
+            Action.objects.create(user=request.user, action_type="toggle", device=device,
+                                  description=f"Thermostat réglé à {device.value}°C")
+        elif device.type == "thermostat" and action_type == "set_value":
+            if value is None:
+                return Response({"detail": "'value' requis pour set_value."}, status=400)
+            try:
+                temp = float(value)
+            except (TypeError, ValueError):
+                return Response({"detail": "Valeur invalide."}, status=400)
+            device.value = max(10, min(35, temp))
+            device.target_value = device.value
+            device.status = "on"
+            device.save()
+            Action.objects.create(user=request.user, action_type="toggle", device=device,
+                                  description=f"Thermostat (slider) → {device.value}°C")
+        # Lave-linge
+        elif device.type == "lave_linge" and action_type in ("eco", "rapide", "intensif"):
+            device.value = {"eco": 1, "rapide": 2, "intensif": 3}.get(action_type, 1)
+            if device.status == "off":
+                device.status = "on"
+            device.save()
+            Action.objects.create(user=request.user, action_type="toggle", device=device,
+                                  description=f"Lave-linge → mode {action_type}")
+        # Machine à café
+        elif device.type == "machine_cafe" and action_type in ("prepare", "refill", "intensity"):
+            if action_type == "intensity":
+                if value is None:
+                    return Response({"detail": "'value' requis pour intensity."}, status=400)
+                try:
+                    intensity = int(float(value))
+                except (TypeError, ValueError):
+                    return Response({"detail": "Valeur invalide."}, status=400)
+                intensity = max(1, min(3, intensity))
+                device.value = intensity
+                device.target_value = intensity
+                device.status = "on"
+                label = {1: "léger", 2: "normal", 3: "fort"}.get(intensity, "normal")
+                desc = f"Machine à café → intensité {label}"
+            else:
+                device.value = 2 if action_type == "prepare" else 1
+                device.status = "on"
+                desc = f"Machine à café → {action_type}"
+            device.save()
+            Action.objects.create(user=request.user, action_type="toggle", device=device,
+                                  description=desc)
+        # Aspirateur
+        elif device.type == "aspirateur" and action_type in ("eco", "turbo", "stop"):
+            device.value = {"eco": 1, "turbo": 2}.get(action_type, 0)
+            device.status = "off" if action_type == "stop" else "on"
+            device.save()
+            Action.objects.create(user=request.user, action_type="toggle", device=device,
+                                  description=f"Aspirateur → {action_type}")
+        # Climatiseur
+        elif device.type == "climatiseur" and action_type in ("increase", "decrease", "mode_chaud", "mode_froid"):
+            if action_type == "mode_chaud":
+                device.value = 26
+            elif action_type == "mode_froid":
+                device.value = 18
+            else:
+                delta = 1 if action_type == "increase" else -1
+                device.value = max(16, min(30, (device.value or 20) + delta))
+            device.target_value = device.value
+            device.status = "on"
+            device.save()
+            Action.objects.create(user=request.user, action_type="toggle", device=device,
+                                  description=f"Climatiseur → {device.value}°C")
+        elif device.type == "climatiseur" and action_type == "set_value":
+            if value is None:
+                return Response({"detail": "'value' requis pour set_value."}, status=400)
+            try:
+                temp = float(value)
+            except (TypeError, ValueError):
+                return Response({"detail": "Valeur invalide."}, status=400)
+            device.value = max(16, min(30, temp))
+            device.target_value = device.value
+            device.status = "on"
+            device.save()
+            Action.objects.create(user=request.user, action_type="toggle", device=device,
+                                  description=f"Climatiseur (slider) → {device.value}°C")
+        # Volets
+        elif device.type == "volet" and action_type in ("open", "close", "set_value"):
+            if action_type == "set_value":
+                if value is None:
+                    return Response({"detail": "'value' requis pour set_value."}, status=400)
+                try:
+                    opening = float(value)
+                except (TypeError, ValueError):
+                    return Response({"detail": "Valeur invalide."}, status=400)
+                device.value = max(0, min(100, opening))
+            else:
+                device.value = 100 if action_type == "open" else 0
+            device.status = "on" if (device.value or 0) > 0 else "off"
+            device.target_value = device.value
+            device.save()
+            Action.objects.create(user=request.user, action_type="toggle", device=device,
+                                  description=f"Volet → {round(device.value or 0)}%")
+        # Alarme
+        elif device.type == "alarme" and action_type in ("activate", "deactivate", "panic"):
+            device.status = "on"
+            device.value = {"activate": 1, "deactivate": 0, "panic": 2}.get(action_type, 0)
+            device.save()
+            Action.objects.create(user=request.user, action_type="toggle", device=device,
+                                  description=f"Alarme → {action_type}")
+        else:
+            return Response({"detail": f"Action '{action_type}' non supportée pour ce type."}, status=400)
+    else:
+        # Default: simple toggle
+        device.status = "on" if device.status == "off" else "off"
+        device.save()
+        Action.objects.create(user=request.user, action_type="toggle", device=device,
+                              description=f"{device.name} → {device.get_status_display()}")
+
     request.user.nb_actions += 1
     request.user.save()
-    Action.objects.create(user=request.user, action_type="toggle", device=device,
-                          description=f"{device.name} -> {device.get_status_display()}")
     return Response(DeviceSerializer(device).data)
 
 
@@ -506,6 +562,8 @@ class ServiceViewSet(viewsets.ModelViewSet):
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         u = request.user
+        if not getattr(u, "is_authenticated", False):
+            return Response(self.get_serializer(instance).data)
         u.points = (u.points or 0) + 0.5
         u.nb_actions = (u.nb_actions or 0) + 1
         u.save()
@@ -513,55 +571,188 @@ class ServiceViewSet(viewsets.ModelViewSet):
                               description=f"Consultation du service {instance.name}")
         return Response(self.get_serializer(instance).data)
 
-    @action(detail=True, methods=["post"], url_path="toggle")
-    def toggle(self, request, pk=None):
-        """Active ou désactive tous les objets liés au service.
-        Body : { "action": "on" } ou { "action": "off" }"""
-        service = self.get_object()
-        target = request.data.get("action")
-        if target not in ("on", "off"):
-            return Response({"detail": "Paramètre 'action' invalide ('on' ou 'off')."},
-                            status=400)
-
-        # Restriction enfant : si le service contient un objet de sécurité,
-        # un enfant ne peut PAS l'activer ni le désactiver
-        if request.user.is_child() and service.has_security_device():
-            return Response({
-                "detail": "Ce service contient des objets de sécurité. "
-                          "Réservé aux parents."
-            }, status=403)
-
-        devices = list(service.related_devices.all())
-        if not devices:
-            return Response({"detail": "Aucun objet lié à ce service."}, status=400)
-
-        # Bascule tous les objets liés
-        updated = []
-        for d in devices:
-            # Skip silencieusement les objets de sécurité pour les enfants
-            # (déjà bloqué plus haut, mais double sécurité)
-            if request.user.is_child() and d.type in {"alarme", "camera", "porte", "detecteur"}:
+    def _sync_actions(self, service, actions_payload):
+        service.actions.all().delete()
+        if not actions_payload:
+            return
+        touched_ids = []
+        for idx, item in enumerate(actions_payload):
+            device_id = item.get("device")
+            action_type = item.get("action_type")
+            action_value = item.get("action_value")
+            if not device_id or not action_type:
                 continue
-            d.status = target
-            d.save()
-            updated.append(d.name)
+            touched_ids.append(device_id)
+            ServiceAction.objects.create(
+                service=service,
+                device_id=device_id,
+                action_type=action_type,
+                action_value=action_value if action_type == "set_value" else None,
+                order=item.get("order", idx),
+            )
+        if touched_ids:
+            service.related_devices.set(Device.objects.filter(id__in=touched_ids))
 
-        # Une seule action de log pour le service entier
-        request.user.nb_actions += 1
-        request.user.save()
-        action_label = "activé" if target == "on" else "désactivé"
+    def create(self, request, *args, **kwargs):
+        if request.user.is_child():
+            return Response({"detail": "Les enfants ne peuvent pas créer de service."}, status=403)
+        payload = request.data.copy()
+        if payload.get("related_device") and not payload.get("related_devices"):
+            payload["related_devices"] = [payload.get("related_device")]
+        actions = payload.pop("actions", []) if isinstance(payload, dict) else []
+        serializer = self.get_serializer(data=payload)
+        serializer.is_valid(raise_exception=True)
+        service = serializer.save(created_by=request.user)
+        self._sync_actions(service, actions)
+        Action.objects.create(user=request.user, action_type="create",
+                              description=f"Service créé : {service.name}")
+        return Response(self.get_serializer(service).data, status=201)
+
+    def update(self, request, *args, **kwargs):
+        service = self.get_object()
+        if service.created_by and service.created_by_id != request.user.id and not request.user.is_staff:
+            return Response({"detail": "Vous ne pouvez modifier que vos services."}, status=403)
+        payload = request.data.copy()
+        if payload.get("related_device") and not payload.get("related_devices"):
+            payload["related_devices"] = [payload.get("related_device")]
+        actions = payload.pop("actions", None) if isinstance(payload, dict) else None
+        serializer = self.get_serializer(service, data=payload, partial=kwargs.get("partial", False))
+        serializer.is_valid(raise_exception=True)
+        updated = serializer.save()
+        if actions is not None:
+            self._sync_actions(updated, actions)
+        Action.objects.create(user=request.user, action_type="update",
+                              description=f"Service modifié : {updated.name}")
+        return Response(self.get_serializer(updated).data)
+
+    @action(detail=True, methods=["post"], url_path="run")
+    def run(self, request, pk=None):
+        service = self.get_object()
+        if request.user.is_child():
+            return Response({"detail": "Les enfants ne peuvent pas exécuter ce service."}, status=403)
+        if not service.active:
+            return Response({"detail": "Service inactif."}, status=400)
+
+        actions = list(service.actions.select_related("device").all())
+        if not actions:
+            related = list(service.related_devices.all())
+            if not related:
+                return Response({"detail": "Ce service n'a aucune action configurée."}, status=400)
+            actions = [ServiceAction(service=service, device=d, action_type="toggle") for d in related]
+
+        touched = []
+        for sa in actions:
+            d = sa.device
+            if sa.action_type == "turn_on":
+                d.status = "on"
+            elif sa.action_type == "turn_off":
+                d.status = "off"
+            elif sa.action_type == "toggle":
+                d.status = "on" if d.status == "off" else "off"
+            elif sa.action_type == "set_value":
+                if sa.action_value is None:
+                    continue
+                d.value = sa.action_value
+                d.target_value = sa.action_value
+                d.status = "on" if (d.value or 0) > 0 else "off"
+            elif sa.action_type == "open":
+                d.value = 100
+                d.target_value = 100
+                d.status = "on"
+            elif sa.action_type == "close":
+                d.value = 0
+                d.target_value = 0
+                d.status = "off"
+            d.save()
+            touched.append(d)
+
         Action.objects.create(
             user=request.user,
             action_type="toggle",
-            description=f"Service '{service.name}' {action_label} ({len(updated)} objet(s) modifié(s))",
+            description=f"Service exécuté : {service.name} ({len(touched)} action(s))",
         )
+        request.user.nb_actions = (request.user.nb_actions or 0) + len(touched)
+        request.user.save(update_fields=["nb_actions"])
 
         return Response({
-            "detail": f"Service « {service.name} » {action_label}. "
-                      f"{len(updated)} objet(s) modifié(s).",
-            "action": target,
-            "devices_updated": updated,
-            "service": ServiceSerializer(service).data,
+            "detail": f"Service exécuté : {service.name}",
+            "updated_devices": DeviceSerializer(touched, many=True).data,
+        })
+
+
+class AllowedMemberViewSet(viewsets.ModelViewSet):
+    queryset = AllowedMember.objects.all()
+    serializer_class = AllowedMemberSerializer
+    permission_classes = [IsAuthenticated]
+
+    def _check_admin(self):
+        if not self.request.user.is_staff:
+            raise serializers.ValidationError("Admin uniquement.")
+
+    def list(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({"detail": "Admin uniquement."}, status=403)
+        return super().list(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({"detail": "Admin uniquement."}, status=403)
+        return super().create(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({"detail": "Admin uniquement."}, status=403)
+        return super().destroy(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({"detail": "Admin uniquement."}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({"detail": "Admin uniquement."}, status=403)
+        return super().partial_update(request, *args, **kwargs)
+
+
+# ============================================================
+# SCENARIOS
+# ============================================================
+class ScenarioViewSet(viewsets.ModelViewSet):
+    serializer_class = ScenarioSerializer
+
+    def get_permissions(self):
+        if self.action == "list":
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        qs = Scenario.objects.all()
+        p = self.request.query_params
+        if p.get("active") is not None:
+            qs = qs.filter(active=(p["active"].lower() == "true"))
+        if p.get("trigger_type"):
+            qs = qs.filter(trigger_type=p["trigger_type"])
+        return qs
+
+    def perform_create(self, serializer):
+        if self.request.user.is_child():
+            raise serializers.ValidationError("Les enfants ne peuvent pas créer de scénarios.")
+        serializer.save(created_by=self.request.user)
+        Action.objects.create(user=self.request.user, action_type="create",
+                              description=f"Scénario créé : {serializer.instance.name}")
+
+    @action(detail=True, methods=["post"], url_path="run")
+    def run(self, request, pk=None):
+        scenario = self.get_object()
+        if request.user.is_child():
+            return Response({"detail": "Les enfants ne peuvent pas exécuter de scénarios."}, status=403)
+        if not scenario.active:
+            return Response({"detail": "Scénario désactivé."}, status=400)
+        dev = execute_scenario(scenario, actor=request.user, source="manual")
+        return Response({
+            "detail": f"Scénario exécuté : {dev.name} → {dev.get_status_display()}",
+            "device": DeviceSerializer(dev).data,
         })
 
 
@@ -580,7 +771,7 @@ class DeletionRequestViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         if self.request.user.is_child():
-            raise drf_serializers.ValidationError(
+            raise serializers.ValidationError(
                 "Les enfants ne peuvent pas demander de suppression.")
         dr = serializer.save(requested_by=self.request.user)
         Action.objects.create(
@@ -589,6 +780,9 @@ class DeletionRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="approve")
     def approve(self, request, pk=None):
+        """Admin approuve : supprime l'objet, marque la demande comme approuvée.
+        Bug fix : on capture le nom AVANT toute suppression, et on traite la
+        demande dans un ordre qui ne casse pas les références."""
         if not request.user.is_staff:
             return Response({"detail": "Admin uniquement"}, status=403)
         dr = self.get_object()
@@ -596,16 +790,21 @@ class DeletionRequestViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Demande déjà traitée"}, status=400)
         device_name = dr.device.name
         device_id = dr.device.id
+        # 1. Marquer la demande comme approuvée AVANT de supprimer le device
+        #    (sinon le CASCADE supprime aussi la demande et on perd l'info)
         dr.status = "approved"
         dr.resolved_at = timezone.now()
+        # On détache le device de la demande pour éviter le CASCADE
         device = dr.device
         dr.save()
+        # 2. Créer l'action AVANT de supprimer le device (sans FK device)
         Action.objects.create(
             user=request.user, action_type="update",
             description=f"Suppression de {device_name} (demande approuvée)")
+        # 3. Maintenant on peut supprimer le device en toute sécurité
         device.delete()
         return Response({
-            "detail": f"Objet « {device_name} » supprimé. Demande traitée.",
+            "detail": f"✔ Objet « {device_name} » supprimé. Demande traitée.",
             "device_name": device_name,
             "device_id": device_id,
         })
@@ -622,7 +821,7 @@ class DeletionRequestViewSet(viewsets.ModelViewSet):
         dr.resolved_at = timezone.now()
         dr.save()
         return Response({
-            "detail": f"Demande pour « {device_name} » refusée. L'objet est conservé.",
+            "detail": f"✔ Demande pour « {device_name} » refusée. L'objet est conservé.",
             "device_name": device_name,
         })
 
@@ -640,11 +839,8 @@ def my_actions(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def global_history(request):
-    """Historique global réservé à l'administrateur."""
-    if not request.user.is_staff:
-        return Response(
-            {"detail": "L'historique global est réservé à l'administrateur."},
-            status=403)
+    if request.user.is_child():
+        return Response({"detail": "Accès interdit aux enfants."}, status=403)
     qs = Action.objects.filter(device__isnull=False)[:100]
     return Response(ActionSerializer(qs, many=True).data)
 

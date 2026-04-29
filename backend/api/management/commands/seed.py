@@ -3,7 +3,7 @@ from datetime import date, time, timedelta
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from api.models import (User, Room, Device, Action, Stat,
-                        Category, Service, DeletionRequest, WhitelistEntry)
+                        Category, Service, ServiceAction, DeletionRequest, Scenario, AllowedMember)
 
 
 class Command(BaseCommand):
@@ -11,29 +11,26 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self.stdout.write("Nettoyage…")
-        for m in (DeletionRequest, Stat, Action, Service, Device, Room, Category):
+        for m in (ServiceAction, DeletionRequest, Stat, Action, Scenario, Service, Device, Room, Category, AllowedMember):
             m.objects.all().delete()
-        WhitelistEntry.objects.all().delete()
         User.objects.filter(is_superuser=False).delete()
         User.objects.filter(username="admin").delete()
 
-        # --- WHITELIST ---
-        self.stdout.write("Création de la whitelist…")
-        whitelist_data = [
-            # email, role, require_email_verification
-            ("alice@maison.fr",            "parent", False),
-            ("bob@maison.fr",              "parent", False),
-            ("charlie@maison.fr",          "enfant", False),
-            ("demo@maison.fr",             "parent", False),
-            ("admin@maison.fr",            "parent", False),
-            ("acfiren12@gmail.com",        "parent", True),   # OTP requis
-            ("famille.dupont@gmail.com",   "parent", False),
-            ("lucas.dupont@gmail.com",     "enfant", False),
-            ("marie.martin@gmail.com",     "parent", False),
+        # --- MEMBERS AUTORISÉS (whitelist en base) ---
+        self.stdout.write("Création des membres autorisés…")
+        allowed_members_data = [
+            ("alice@maison.fr", "parent"),
+            ("bob@maison.fr", "parent"),
+            ("charlie@maison.fr", "enfant"),
+            ("demo@maison.fr", "parent"),
+            ("admin@maison.fr", "parent"),
+            ("acfiren12@gmail.com", "parent"),
+            ("famille.dupont@gmail.com", "parent"),
+            ("lucas.dupont@gmail.com", "enfant"),
+            ("marie.martin@gmail.com", "parent"),
         ]
-        for email, role, req in whitelist_data:
-            WhitelistEntry.objects.create(
-                email=email, role=role, require_email_verification=req)
+        for email, role in allowed_members_data:
+            AllowedMember.objects.get_or_create(email=email, role=role)
 
         # --- Catégories ---
         cats = {}
@@ -54,8 +51,9 @@ class Command(BaseCommand):
             ("Jardin", "jardin"),
         ]]
 
-        # --- Utilisateurs ---
+        # --- Utilisateurs (rôle = parent ou enfant, déterminé par allowed_members) ---
         users_data = [
+            # user, email, role, age, level, pts, gender, first, last, dob
             ("alice",   "alice@maison.fr",   "parent", 35, "expert",        20, "F", "Alice",   "Martin",  date(1990, 5, 12)),
             ("bob",     "bob@maison.fr",     "parent", 37, "avance",        12, "M", "Bob",     "Martin",  date(1988, 3, 8)),
             ("charlie", "charlie@maison.fr", "enfant", 10, "intermediaire",  6, "M", "Charlie", "Martin",  date(2015, 7, 19)),
@@ -69,12 +67,17 @@ class Command(BaseCommand):
             user.level, user.points = lvl, pts
             user.gender, user.date_naissance = gen, dob
             user.is_approved = True
-            user.email_verified = True
+            user.email_verified = True  # déjà validés (seed)
+            user.nb_connexions = random.randint(5, 40)
+            user.nb_actions = random.randint(10, 100)
             user.save()
             users.append(user)
 
-        # --- Objets connectés (TOUS à 100% batterie) ---
+        # (AllowedMember déjà rempli plus haut)
+
+        # --- Objets connectés (TOUS à 100% batterie au départ) ---
         devices_data = [
+            # name, type, room, cat, status, value, target, brand, start, end
             ("Thermostat Salon",    "thermostat",     rooms[0], cats["Confort"],        "on",  21, 22, "Philips",    time(6,0),  time(23,0)),
             ("Caméra entrée",       "camera",         rooms[0], cats["Sécurité"],       "on",   0,  0, "Hikvision",  None, None),
             ("Lave-linge",          "lave_linge",     rooms[5], cats["Électroménager"], "off",  0,  0, "Bosch",      time(8,0),  time(20,0)),
@@ -95,76 +98,114 @@ class Command(BaseCommand):
         for name, t, room, cat, st, val, tgt, brand, start, end in devices_data:
             d = Device.objects.create(
                 name=name, type=t, room=room, category=cat, status=st,
-                battery=100,
+                battery=100,  # ✅ Tous à 100% au départ
                 value=val, target_value=tgt, brand=brand,
                 start_time=start, end_time=end,
                 user=random.choice(users[:2]),
                 description=f"{name} — marque {brand}. Connecté en Wi-Fi.",
-                last_maintenance=date(2025, 10, 15),
+                last_maintenance=date(2025, 10, 15),  # maintenance récente
             )
             devices.append(d)
 
-        # --- 7 objets en maintenance (sur 15) : moitié à réviser ---
-        # Indices : Lave-linge, Aspirateur, Climatiseur, Alarme,
-        #          Arrosage jardin, Détecteur entrée, Thermostat Chambre
-        # On varie : certains avec batterie faible, d'autres maintenance ancienne
-        maintenance_setup = [
-            (2,  15, date(2025, 6, 10)),   # Lave-linge : batterie faible
-            (4,   8, date(2024, 1, 15)),   # Aspirateur : batterie + maintenance ancienne
-            (7,  12, date(2025, 5, 20)),   # Climatiseur : batterie faible
-            (9, 100, date(2024, 6, 5)),    # Alarme : maintenance ancienne (>6 mois)
-            (10, 18, date(2023, 8, 10)),   # Arrosage : batterie + maintenance très ancienne
-            (13, 100, date(2024, 8, 20)),  # Détecteur : maintenance ancienne (>6 mois)
-            (14,  5, date(2025, 9, 1)),    # Thermostat Chambre : batterie très faible
-        ]
-        for idx, bat, last_maint in maintenance_setup:
-            devices[idx].battery = bat
-            devices[idx].last_maintenance = last_maint
-            devices[idx].save()
+        # --- 2 objets avec maintenance ancienne (>6 mois) pour la démo ---
+        # On garde la batterie à 100% mais on met une date de maintenance ancienne
+        devices[4].last_maintenance = date(2024, 1, 15)  # Aspirateur robot
+        devices[4].save()
+        devices[10].last_maintenance = date(2023, 8, 10)  # Arrosage
+        devices[10].save()
 
-        # --- 5 SERVICES M2M (chacun lié à plusieurs objets) ---
-        # Format : (name, description, type, [indices_devices])
-        services_data = [
-            (
-                "Mode sécurité maison",
-                "Activez tout le système de sécurité en un clic : alarme, "
-                "caméra de surveillance, détecteur d'entrée et porte du garage.",
-                "securite",
-                [9, 1, 13, 11],  # Alarme, Caméra entrée, Détecteur Entrée, Porte garage
-            ),
-            (
-                "Confort & ambiance",
-                "Réglez l'ambiance idéale : thermostats au bon niveau, "
-                "climatiseur en marche, volets ouverts.",
-                "confort",
-                [0, 14, 7, 5],  # Thermostat Salon, Thermostat Chambre, Climatiseur, Volet salon
-            ),
-            (
-                "Cinéma à la maison",
-                "Lancez le mode cinéma : TV allumée, enceinte connectée, "
-                "volets fermés pour l'immersion.",
-                "divertissement",
-                [6, 12, 5],  # TV Salon, Enceinte Salon, Volet salon
-            ),
-            (
-                "Routine matinale",
-                "Réveil en douceur : café préparé, volets ouverts, "
-                "thermostat du salon réglé.",
-                "confort",
-                [8, 5, 0],  # Machine à café, Volet salon, Thermostat Salon
-            ),
-            (
-                "Entretien quotidien",
-                "Lancez tous les appareils ménagers : lave-linge, "
-                "lave-vaisselle, aspirateur robot et arrosage du jardin.",
-                "energie",
-                [2, 3, 4, 10],  # Lave-linge, Lave-vaisselle, Aspirateur, Arrosage jardin
-            ),
+        # --- Services/outils variés ---
+        services = [
+            ("Suivi consommation électrique",
+             "Visualise la consommation kWh de tous tes appareils en temps réel.",
+             "energie", devices[2]),
+            ("Alarme intrusion",
+             "Notification instantanée dès qu'un mouvement suspect est détecté.",
+             "securite", devices[9]),
+            ("Surveillance vidéo",
+             "Accède aux flux des caméras à distance depuis ton téléphone.",
+             "securite", devices[1]),
+            ("Mode nuit automatique",
+             "Baisse le chauffage à 19°C et ferme les volets à 22h.",
+             "confort", devices[0]),
+            ("Planning machine à café",
+             "Café prêt chaque matin à 6h30 du lundi au vendredi.",
+             "confort", devices[8]),
+            ("Streaming musical multiroom",
+             "Diffusion de musique dans toutes les pièces depuis ton téléphone.",
+             "divertissement", devices[12]),
+            ("Rapport énergétique hebdomadaire",
+             "Bilan hebdo envoyé chaque dimanche par email.",
+             "energie", None),
+            ("Arrosage intelligent",
+             "Programmation automatique selon la météo.",
+             "confort", devices[10]),
+            ("Cinéma à la maison",
+             "Lance la TV, baisse les volets, éteint la lumière en un clic.",
+             "divertissement", devices[6]),
+            ("Détection de fuite",
+             "Alerte en cas d'anomalie de consommation d'eau.",
+             "securite", None),
         ]
-        for name, desc, type_, dev_indices in services_data:
-            srv = Service.objects.create(name=name, description=desc, type=type_)
-            for idx in dev_indices:
-                srv.related_devices.add(devices[idx])
+        created_services = {}
+        for n, d, t, dev in services:
+            svc = Service.objects.create(
+                name=n,
+                description=d,
+                type=t,
+                created_by=users[0],
+            )
+            if dev:
+                svc.related_devices.add(dev)
+            created_services[n] = svc
+
+        # Service "Mode Théâtre" réellement fonctionnel (multi-actions)
+        theatre = created_services.get("Cinéma à la maison")
+        volet = next((d for d in devices if d.type == "volet"), None)
+        tv = next((d for d in devices if d.type == "television"), None)
+        enceinte = next((d for d in devices if d.type == "enceinte"), None)
+        cafe = next((d for d in devices if d.type == "machine_cafe"), None)
+        arrosage = next((d for d in devices if d.type == "arrosage"), None)
+
+        if theatre:
+            idx = 0
+            if volet:
+                ServiceAction.objects.create(service=theatre, device=volet, action_type="close", order=idx); idx += 1
+            if tv:
+                ServiceAction.objects.create(service=theatre, device=tv, action_type="turn_on", order=idx); idx += 1
+            if enceinte:
+                ServiceAction.objects.create(service=theatre, device=enceinte, action_type="turn_on", order=idx); idx += 1
+            if cafe:
+                ServiceAction.objects.create(service=theatre, device=cafe, action_type="turn_off", order=idx); idx += 1
+            if arrosage:
+                ServiceAction.objects.create(service=theatre, device=arrosage, action_type="turn_off", order=idx)
+
+        # Services supplémentaires “utiles”
+        thermostat = next((d for d in devices if d.name == "Thermostat Salon"), None)
+        climatiseur = next((d for d in devices if d.type == "climatiseur"), None)
+        alarme = next((d for d in devices if d.type == "alarme"), None)
+
+        if thermostat and climatiseur:
+            eco = Service.objects.create(
+                name="Mode Éco Nuit",
+                description="Réduit la conso la nuit: thermostat 19°C, clim 24°C.",
+                type="energie",
+                created_by=users[0],
+            )
+            eco.related_devices.add(thermostat, climatiseur)
+            ServiceAction.objects.create(service=eco, device=thermostat, action_type="set_value", action_value=19, order=0)
+            ServiceAction.objects.create(service=eco, device=climatiseur, action_type="set_value", action_value=24, order=1)
+
+        if alarme and volet:
+            away = Service.objects.create(
+                name="Mode Absence",
+                description="Ferme volets + active l'alarme en un clic.",
+                type="securite",
+                created_by=users[0],
+            )
+            away.related_devices.add(alarme, volet)
+            ServiceAction.objects.create(service=away, device=volet, action_type="close", order=0)
+            ServiceAction.objects.create(service=away, device=alarme, action_type="turn_on", order=1)
 
         # --- Stats de consommation ---
         for d in devices:
@@ -183,46 +224,10 @@ class Command(BaseCommand):
             (18, 20), (19, 30), (20, 45), (21, 15), (22, 0),
         ]
 
-        for user in users:
-            n_logins = user_profiles[user.id]
-            user_actions = []
-            for _ in range(n_logins):
-                days_ago = random.randint(0, 20)
-                hour, minute = random.choice(realistic_hours)
-                minute_offset = random.randint(-15, 15)
-                date_login = now - timedelta(days=days_ago)
-                date_login = date_login.replace(
-                    hour=hour, minute=max(0, min(59, minute + minute_offset)),
-                    second=random.randint(0, 59), microsecond=0)
-                user_actions.append(date_login)
-            user_actions.sort()
-            for d_login in user_actions:
-                a = Action.objects.create(
-                    user=user, action_type="login",
-                    description="Connexion à la plateforme")
-                Action.objects.filter(pk=a.pk).update(date=d_login)
-
-            for _ in range(random.randint(3, 8)):
-                days_ago = random.randint(0, 14)
-                hour, minute = random.choice(realistic_hours)
-                date_consult = now - timedelta(days=days_ago)
-                date_consult = date_consult.replace(
-                    hour=hour, minute=minute,
-                    second=random.randint(0, 59), microsecond=0)
-                device = random.choice(devices)
-                a = Action.objects.create(
-                    user=user, action_type="consult",
-                    device=device, description=f"Consultation de {device.name}")
-                Action.objects.filter(pk=a.pk).update(date=date_consult)
-
-            user.nb_connexions = n_logins
-            user.nb_actions = n_logins + random.randint(3, 8)
-            user.save()
-
-        # --- Demande de suppression de démo ---
+        # --- Une demande de suppression de démo ---
         DeletionRequest.objects.create(
-            device=devices[4],
-            requested_by=users[1],
+            device=devices[4],  # Aspirateur robot
+            requested_by=users[1],  # bob
             reason="Batterie en fin de vie, on va le remplacer.",
             status="pending",
         )
@@ -235,14 +240,14 @@ class Command(BaseCommand):
             first_name="Admin", last_name="System",
             is_approved=True, email_verified=True)
 
-        self.stdout.write(self.style.SUCCESS("Données SmartHouse générées."))
-        self.stdout.write(" 15 objets connectés : 8 en bon état, 7 nécessitant maintenance.")
-        self.stdout.write(" 5 services regroupant plusieurs objets (M2M).")
-        self.stdout.write(" Comptes : alice / bob / charlie / demo (mdp : demo1234)")
-        self.stdout.write(" Admin   : admin / admin1234")
+        self.stdout.write(self.style.SUCCESS("Done: donnees generees."))
+        self.stdout.write("Tous les objets ont 100% de batterie au depart.")
+        self.stdout.write("2 objets ont une maintenance ancienne (demo Maintenance).")
+        self.stdout.write("Comptes : alice / bob / charlie / demo (mdp : demo1234)")
+        self.stdout.write("Admin   : admin / admin1234")
         self.stdout.write("")
-        self.stdout.write(" Whitelist :")
-        self.stdout.write("   - acfiren12@gmail.com (parent) -> OTP par mail requis")
-        self.stdout.write("   - famille.dupont@gmail.com (parent) -> activation auto")
-        self.stdout.write("   - lucas.dupont@gmail.com (enfant) -> activation auto")
-        self.stdout.write("   - marie.martin@gmail.com (parent) -> activation auto")
+        self.stdout.write("Emails pre-autorises a s'inscrire :")
+        self.stdout.write("   - acfiren12@gmail.com (parent)")
+        self.stdout.write("   - famille.dupont@gmail.com (parent)")
+        self.stdout.write("   - lucas.dupont@gmail.com (enfant)")
+        self.stdout.write("   - marie.martin@gmail.com (parent)")

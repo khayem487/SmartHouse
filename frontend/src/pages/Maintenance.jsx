@@ -34,8 +34,7 @@ export default function Maintenance() {
       ) : (
         <div className="cards">
           {devices.map((d) => (
-            <article key={d.id} className="card"
-                     style={{ borderLeft: "4px solid #f59e0b" }}>
+            <article key={d.id} className="card maintenance-card">
               <h3>{d.name}</h3>
               <p><strong>Type :</strong> {d.type_display}</p>
               <p><strong>Pièce :</strong> {d.room_name || "—"}</p>
@@ -46,7 +45,7 @@ export default function Maintenance() {
                   : ` ${d.battery}%`}
               </p>
               <p><strong>Dernière maintenance :</strong> {d.last_maintenance || "jamais"}</p>
-              <div style={{ marginTop: 10 }}>
+              <div className="action-row">
                 <button className="btn success" onClick={() => repair(d.id, d.name)}>
                   🔧 Marquer comme réparé
                 </button>
@@ -57,9 +56,9 @@ export default function Maintenance() {
         </div>
       )}
 
-      <div className="alert info" style={{ marginTop: "1.5rem" }}>
+      <div className="alert info mt-2">
         <strong>💡 Comment ça marche :</strong>
-        <ul style={{ marginLeft: 20, marginTop: 5 }}>
+        <ul className="help-list">
           <li>🔧 "Marquer comme réparé" : recharge la batterie et remet la date de maintenance à aujourd'hui. L'objet sort de la liste.</li>
           <li>🗑 Pour supprimer un objet définitivement, allez sur la page de l'objet et utilisez "Demander suppression" (ou "Supprimer" si vous êtes admin).</li>
         </ul>

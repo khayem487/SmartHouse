@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.utils import timezone
 from .models import (User, Room, Device, Action, Stat,
-                     Category, Service, DeletionRequest, WhitelistEntry)
+                     Category, Service, DeletionRequest, Scenario, AllowedMember)
 
 
 @admin.register(User)
@@ -27,13 +27,6 @@ admin.site.register(Action)
 admin.site.register(Stat)
 
 
-@admin.register(WhitelistEntry)
-class WhitelistAdmin(admin.ModelAdmin):
-    list_display = ("email", "role", "require_email_verification", "added_at")
-    list_filter = ("role", "require_email_verification")
-    search_fields = ("email",)
-
-
 @admin.register(DeletionRequest)
 class DeletionRequestAdmin(admin.ModelAdmin):
     list_display = ("device", "requested_by", "status", "created_at")
@@ -52,3 +45,17 @@ class DeletionRequestAdmin(admin.ModelAdmin):
     def reject(self, request, queryset):
         queryset.filter(status="pending").update(
             status="rejected", resolved_at=timezone.now())
+
+
+@admin.register(Scenario)
+class ScenarioAdmin(admin.ModelAdmin):
+    list_display = ("name", "trigger_type", "action_type", "active", "created_by", "last_run")
+    list_filter = ("trigger_type", "action_type", "active")
+    search_fields = ("name", "description")
+
+
+@admin.register(AllowedMember)
+class AllowedMemberAdmin(admin.ModelAdmin):
+    list_display = ("email", "role", "created_at")
+    list_filter = ("role",)
+    search_fields = ("email",)

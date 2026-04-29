@@ -1,12 +1,13 @@
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from .models import (User, Room, Device, Action, Stat,
-                     Category, Service, DeletionRequest, WhitelistEntry)
-from .allowed_members import is_allowed, get_role, requires_email_verification
+                     Category, Service, ServiceAction, DeletionRequest, Scenario, AllowedMember)
+from .allowed_members import is_allowed, get_role
 
 
 class UserRegisterSerializer(serializers.ModelSerializer):
-    """Inscription : le rôle est déterminé par l'email pré-autorisé."""
+    """Inscription : le rôle est déterminé par l'email pré-autorisé,
+    pas choisi par l'utilisateur."""
     password = serializers.CharField(write_only=True, required=True,
                                      validators=[validate_password])
 
@@ -18,11 +19,13 @@ class UserRegisterSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         v = value.lower().strip()
+        # 1. Vérifier que l'email est dans la liste des membres autorisés
         if not is_allowed(v):
             raise serializers.ValidationError(
                 "Cet email n'est pas autorisé. Seuls les membres de la maison "
                 "peuvent s'inscrire. Contactez l'administrateur si vous pensez "
                 "que c'est une erreur.")
+        # 2. Vérifier qu'aucun compte n'existe déjà avec cet email
         if User.objects.filter(email__iexact=v).exists():
             raise serializers.ValidationError(
                 "Un compte existe déjà avec cet email.")
@@ -31,16 +34,16 @@ class UserRegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         pwd = validated_data.pop("password")
         email = validated_data["email"]
+        # Le rôle est déterminé automatiquement
         role = get_role(email)
-        needs_mail = requires_email_verification(email)
+        # Désactivé jusqu'à validation email
         user = User.objects.create_user(
             password=pwd,
             role=role,
             email_verified=False,
-            is_approved=True,
+            is_approved=True,  # déjà approuvé car email pré-autorisé
             **validated_data,
         )
-        user._needs_mail = needs_mail
         return user
 
 
@@ -57,6 +60,7 @@ class UserSerializer(serializers.ModelSerializer):
                   "level", "points", "max_level",
                   "nb_connexions", "nb_actions",
                   "is_approved", "email_verified", "is_staff", "is_child")
+        # Le rôle est read_only : impossible de devenir parent en modifiant son profil
         read_only_fields = ("level", "points", "nb_connexions", "nb_actions",
                             "is_approved", "email_verified", "max_level",
                             "is_staff", "role", "is_child")
@@ -115,32 +119,42 @@ class DeviceSerializer(serializers.ModelSerializer):
 
 
 class ServiceSerializer(serializers.ModelSerializer):
+    actions = serializers.SerializerMethodField()
     type_display = serializers.CharField(source="get_type_display", read_only=True)
-    related_devices_info = serializers.SerializerMethodField()
-    has_security_device = serializers.BooleanField(read_only=True)
-    all_devices_on = serializers.SerializerMethodField()
+    related_devices = serializers.PrimaryKeyRelatedField(queryset=Device.objects.all(), many=True, required=False)
+    related_device = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    related_device_names = serializers.SerializerMethodField()
+    created_by_name = serializers.CharField(source="created_by.username", read_only=True)
 
     class Meta:
         model = Service
         fields = ("id", "name", "description", "type", "type_display",
-                  "related_devices", "related_devices_info",
-                  "has_security_device", "all_devices_on",
-                  "active", "created_at")
+                  "related_device", "related_devices", "related_device_names", "active",
+                  "created_by", "created_by_name", "actions", "created_at")
+        read_only_fields = ("created_by", "created_at")
 
-    def get_related_devices_info(self, obj):
-        return [{
-            "id": d.id, "name": d.name,
-            "type_display": d.get_type_display(),
-            "status": d.status,
-            "status_display": d.get_status_display(),
-            "is_security": d.type in {"alarme", "camera", "porte", "detecteur"},
-        } for d in obj.related_devices.all()]
+    def get_actions(self, obj):
+        return ServiceActionSerializer(obj.actions.all(), many=True).data
 
-    def get_all_devices_on(self, obj):
-        devices = obj.related_devices.all()
-        if not devices.exists():
-            return False
-        return all(d.status == "on" for d in devices)
+    def get_related_device_names(self, obj):
+        return [d.name for d in obj.related_devices.all()]
+
+    def validate(self, attrs):
+        single = attrs.pop("related_device", None)
+        if single and not attrs.get("related_devices"):
+            try:
+                attrs["related_devices"] = [Device.objects.get(pk=single)]
+            except Device.DoesNotExist:
+                raise serializers.ValidationError({"related_device": "Objet lié introuvable."})
+        return attrs
+
+
+class ServiceActionSerializer(serializers.ModelSerializer):
+    device_name = serializers.CharField(source="device.name", read_only=True)
+
+    class Meta:
+        model = ServiceAction
+        fields = ("id", "device", "device_name", "action_type", "action_value", "order")
 
 
 class ActionSerializer(serializers.ModelSerializer):
@@ -176,21 +190,23 @@ class DeletionRequestSerializer(serializers.ModelSerializer):
         read_only_fields = ("requested_by", "status", "created_at", "resolved_at")
 
 
-class WhitelistEntrySerializer(serializers.ModelSerializer):
-    has_account = serializers.SerializerMethodField()
+class ScenarioSerializer(serializers.ModelSerializer):
+    trigger_device_name = serializers.CharField(source="trigger_device.name", read_only=True)
+    action_device_name = serializers.CharField(source="action_device.name", read_only=True)
+    created_by_name = serializers.CharField(source="created_by.username", read_only=True)
 
     class Meta:
-        model = WhitelistEntry
-        fields = ("id", "email", "role", "require_email_verification",
-                  "added_at", "note", "has_account")
-        read_only_fields = ("added_at",)
+        model = Scenario
+        fields = ("id", "name", "description", "trigger_type", "trigger_time",
+                  "trigger_device", "trigger_device_name",
+                  "action_type", "action_device", "action_device_name",
+                  "action_value", "active", "last_run",
+                  "created_by", "created_by_name")
+        read_only_fields = ("created_by", "last_run")
 
-    def get_has_account(self, obj):
-        return User.objects.filter(email__iexact=obj.email).exists()
 
-    def validate_email(self, value):
-        v = value.lower().strip()
-        # En création seulement, vérifier l'unicité
-        if self.instance is None and WhitelistEntry.objects.filter(email__iexact=v).exists():
-            raise serializers.ValidationError("Cet email est déjà dans la whitelist.")
-        return v
+class AllowedMemberSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AllowedMember
+        fields = ("id", "email", "role", "created_at")
+        read_only_fields = ("created_at",)

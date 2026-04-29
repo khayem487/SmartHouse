@@ -5,7 +5,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import VerifyOTP from "./pages/VerifyOTP";
+import Verify from "./pages/Verify";
 import Dashboard from "./pages/Dashboard";
 import Devices from "./pages/Devices";
 import DeviceDetail from "./pages/DeviceDetail";
@@ -20,6 +20,7 @@ import History from "./pages/History";
 import Stats from "./pages/Stats";
 import MyRequests from "./pages/MyRequests";
 import AdminRequests from "./pages/AdminRequests";
+import AdminUsers from "./pages/AdminUsers";
 
 export default function App() {
   return (
@@ -29,7 +30,8 @@ export default function App() {
         <Route path="/"             element={<Home />} />
         <Route path="/login"        element={<Login />} />
         <Route path="/register"     element={<Register />} />
-        <Route path="/verify-otp"   element={<VerifyOTP />} />
+        <Route path="/verify"       element={<Verify />} />
+        <Route path="/verify/:token" element={<Verify />} />
         <Route path="/devices"      element={<Devices />} />
         <Route path="/services"     element={<Services />} />
 
@@ -48,6 +50,7 @@ export default function App() {
         <Route path="/stats"             element={<ProtectedRoute requireAdvanced><Stats /></ProtectedRoute>} />
 
         <Route path="/admin-requests" element={<ProtectedRoute><AdminRequests /></ProtectedRoute>} />
+        <Route path="/admin/users" element={<ProtectedRoute><AdminUsers /></ProtectedRoute>} />
       </Routes>
       <footer>
         <p>SmartHouse — Projet CY Tech ING1 2025-2026</p>

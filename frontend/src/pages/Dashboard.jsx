@@ -77,7 +77,7 @@ export default function Dashboard() {
 
       <section aria-labelledby="hist-title">
         <h2 id="hist-title">Historique récent</h2>
-        <p style={{ fontSize: "0.85rem", color: "#666" }}>
+        <p className="meta-text">
           {actions.length} action(s) au total — 15 plus récentes affichées.
         </p>
         {actions.length === 0 ? (

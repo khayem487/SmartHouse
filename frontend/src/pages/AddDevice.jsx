@@ -52,7 +52,7 @@ export default function AddDevice() {
 
   return (
     <main className="container" id="main">
-      <form className="form" onSubmit={submit} style={{ maxWidth: 700 }}>
+      <form className="form form-wide" onSubmit={submit}>
         <h2>Ajouter un objet connecté</h2>
 
         <label htmlFor="n">Nom</label>

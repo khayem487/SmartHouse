@@ -59,19 +59,18 @@ export default function Stats() {
 
       <section aria-labelledby="type-t">
         <h2 id="type-t">Répartition par type</h2>
-        <div style={{ background: "white", padding: "1.3rem", borderRadius: 12 }}>
+        <div className="chart-card">
           {Object.entries(s.devices_by_type || {}).map(([type, count]) => (
-            <div key={type} style={{ marginBottom: "0.8rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div key={type} className="chart-row">
+              <div className="chart-head">
                 <span>{type}</span>
                 <span><strong>{count}</strong></span>
               </div>
-              <div style={{ background: "#e5e7eb", borderRadius: 4, height: 10 }}>
-                <div style={{
-                  background: "#4f46e5",
-                  width: `${(count / maxType) * 100}%`,
-                  height: "100%", borderRadius: 4,
-                }} />
+              <div className="chart-track">
+                <div
+                  className="chart-fill type"
+                  style={{ width: `${(count / maxType) * 100}%` }}
+                />
               </div>
             </div>
           ))}
@@ -80,19 +79,18 @@ export default function Stats() {
 
       <section aria-labelledby="room-t">
         <h2 id="room-t">Répartition par pièce</h2>
-        <div style={{ background: "white", padding: "1.3rem", borderRadius: 12 }}>
+        <div className="chart-card">
           {Object.entries(s.devices_by_room || {}).map(([room, count]) => (
-            <div key={room} style={{ marginBottom: "0.8rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div key={room} className="chart-row">
+              <div className="chart-head">
                 <span>{room}</span>
                 <span><strong>{count}</strong></span>
               </div>
-              <div style={{ background: "#e5e7eb", borderRadius: 4, height: 10 }}>
-                <div style={{
-                  background: "#059669",
-                  width: `${(count / maxRoom) * 100}%`,
-                  height: "100%", borderRadius: 4,
-                }} />
+              <div className="chart-track">
+                <div
+                  className="chart-fill room"
+                  style={{ width: `${(count / maxRoom) * 100}%` }}
+                />
               </div>
             </div>
           ))}

@@ -53,7 +53,7 @@ export default function EditDevice() {
 
   return (
     <main className="container" id="main">
-      <form className="form" onSubmit={submit} style={{ maxWidth: 700 }}>
+      <form className="form form-wide" onSubmit={submit}>
         <h2>Modifier l'objet</h2>
 
         <label htmlFor="n">Nom</label>
