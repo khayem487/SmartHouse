@@ -31,9 +31,9 @@ export default function Login() {
     <main className="container" id="main">
       <form className="form" onSubmit={submit} aria-labelledby="login-title">
         <h2 id="login-title">Connexion</h2>
-        <label htmlFor="u">Nom d'utilisateur</label>
+        <label htmlFor="u">Nom d'utilisateur ou email</label>
         <input id="u" value={username} onChange={(e) => setUsername(e.target.value)}
-               required autoComplete="username" />
+               required autoComplete="username" placeholder="Pseudo ou email" />
         <label htmlFor="p">Mot de passe</label>
         <input id="p" type="password" value={password}
                onChange={(e) => setPassword(e.target.value)}

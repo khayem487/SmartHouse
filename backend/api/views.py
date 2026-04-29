@@ -104,6 +104,15 @@ class RegisterView(generics.CreateAPIView):
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
+        # Accepte pseudo insensible à la casse OU email à la place du pseudo
+        raw_login = (attrs.get("username") or "").strip()
+        if raw_login:
+            candidate = User.objects.filter(username__iexact=raw_login).first()
+            if not candidate:
+                candidate = User.objects.filter(email__iexact=raw_login).first()
+            if candidate:
+                attrs["username"] = candidate.username
+
         data = super().validate(attrs)
         user = self.user
         # Bloquer si email pas vérifié
