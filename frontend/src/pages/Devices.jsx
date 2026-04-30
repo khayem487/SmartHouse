@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import API, { isLoggedIn } from "../api";
+import API, { API_URL, isLoggedIn } from "../api";
 
 const TYPES = [
   ["thermostat","Thermostat"],["camera","Caméra"],["alarme","Alarme"],
@@ -22,14 +22,40 @@ export default function Devices() {
   const logged = isLoggedIn();
 
   useEffect(() => {
-    API.get("/rooms/").then((r) => setRooms(r.data));
-    API.get("/categories/").then((r) => setCategories(r.data));
+    API.get("/rooms/")
+      .then((r) => setRooms(r.data))
+      .catch(async () => {
+        try {
+          const res = await fetch(`${API_URL}/rooms/`);
+          if (res.ok) setRooms(await res.json());
+        } catch {}
+      });
+
+    API.get("/categories/")
+      .then((r) => setCategories(r.data))
+      .catch(async () => {
+        try {
+          const res = await fetch(`${API_URL}/categories/`);
+          if (res.ok) setCategories(await res.json());
+        } catch {}
+      });
   }, []);
 
   useEffect(() => {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([k, v]) => v && params.append(k, v));
-    API.get("/devices/?" + params.toString()).then((r) => setDevices(r.data));
+    const qs = params.toString();
+    API.get("/devices/?" + qs)
+      .then((r) => setDevices(r.data))
+      .catch(async () => {
+        try {
+          const res = await fetch(`${API_URL}/devices/${qs ? `?${qs}` : ""}`);
+          if (res.ok) setDevices(await res.json());
+          else setDevices([]);
+        } catch {
+          setDevices([]);
+        }
+      });
   }, [filters]);
 
   const set = (k, v) => setFilters({ ...filters, [k]: v });
@@ -56,7 +82,7 @@ export default function Devices() {
       {!logged && (
         <div className="alert info">
           🔒 Vous êtes en mode visiteur. <Link to="/login">Connectez-vous</Link>{" "}
-          ou <Link to="/register">inscrivez-vous</Link> pour consulter les détails.
+          ou <Link to="/register">inscrivez-vous</Link> pour piloter/modifier les objets.
         </div>
       )}
 
@@ -89,19 +115,10 @@ export default function Devices() {
 
       <div className="cards">
         {devices.map((d) => (
-          logged ? (
-            <Link key={d.id} to={`/devices/${d.id}`} className="card">
+          <Link key={d.id} to={`/devices/${d.id}`} className="card">
               <CardContent d={d} />
+              {!logged && <p className="card-note">🔒 Connectez-vous pour piloter cet objet</p>}
             </Link>
-          ) : (
-            <article key={d.id} className="card visitor-card"
-                     aria-label="Détails réservés aux membres connectés">
-              <CardContent d={d} />
-              <p className="card-note">
-                🔒 Connectez-vous pour voir les détails
-              </p>
-            </article>
-          )
         ))}
       </div>
     </main>

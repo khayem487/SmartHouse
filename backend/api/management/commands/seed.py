@@ -114,98 +114,106 @@ class Command(BaseCommand):
         devices[10].last_maintenance = date(2023, 8, 10)  # Arrosage
         devices[10].save()
 
-        # --- Services/outils variés ---
+        # --- 4 services essentiels, chacun relié à plusieurs objets ---
+        thermostat_salon = devices[0]
+        camera_entree = devices[1]
+        lave_linge = devices[2]
+        lave_vaisselle = devices[3]
+        aspirateur = devices[4]
+        volet = devices[5]
+        tv = devices[6]
+        climatiseur = devices[7]
+        cafe = devices[8]
+        alarme = devices[9]
+        arrosage = devices[10]
+        porte_garage = devices[11]
+        enceinte = devices[12]
+        detecteur = devices[13]
+        thermostat_chambre = devices[14]
+
         services = [
-            ("Suivi consommation électrique",
-             "Visualise la consommation kWh de tous tes appareils en temps réel.",
-             "energie", devices[2]),
-            ("Alarme intrusion",
-             "Notification instantanée dès qu'un mouvement suspect est détecté.",
-             "securite", devices[9]),
-            ("Surveillance vidéo",
-             "Accède aux flux des caméras à distance depuis ton téléphone.",
-             "securite", devices[1]),
-            ("Mode nuit automatique",
-             "Baisse le chauffage à 19°C et ferme les volets à 22h.",
-             "confort", devices[0]),
-            ("Planning machine à café",
-             "Café prêt chaque matin à 6h30 du lundi au vendredi.",
-             "confort", devices[8]),
-            ("Streaming musical multiroom",
-             "Diffusion de musique dans toutes les pièces depuis ton téléphone.",
-             "divertissement", devices[12]),
-            ("Rapport énergétique hebdomadaire",
-             "Bilan hebdo envoyé chaque dimanche par email.",
-             "energie", None),
-            ("Arrosage intelligent",
-             "Programmation automatique selon la météo.",
-             "confort", devices[10]),
-            ("Cinéma à la maison",
-             "Lance la TV, baisse les volets, éteint la lumière en un clic.",
-             "divertissement", devices[6]),
-            ("Détection de fuite",
-             "Alerte en cas d'anomalie de consommation d'eau.",
-             "securite", None),
+            {
+                "name": "Suivi consommation électrique",
+                "description": "Pilotage énergie groupé (électroménager + CVC) pour réduire la conso.",
+                "type": "energie",
+                "related": [
+                    lave_linge, lave_vaisselle, aspirateur,
+                    climatiseur, thermostat_salon, thermostat_chambre, arrosage,
+                ],
+                "actions": [
+                    (thermostat_salon, "set_value", 20),
+                    (thermostat_chambre, "set_value", 19),
+                    (climatiseur, "set_value", 24),
+                    (lave_linge, "turn_off", None),
+                    (lave_vaisselle, "turn_off", None),
+                    (aspirateur, "turn_off", None),
+                    (arrosage, "turn_off", None),
+                ],
+            },
+            {
+                "name": "Alarme intrusion",
+                "description": "Active le pack sécurité complet : alarme, caméra, détecteur et accès garage.",
+                "type": "securite",
+                "related": [alarme, camera_entree, detecteur, porte_garage],
+                "actions": [
+                    (alarme, "turn_on", None),
+                    (camera_entree, "turn_on", None),
+                    (detecteur, "turn_on", None),
+                    (porte_garage, "turn_on", None),
+                ],
+            },
+            {
+                "name": "Mode nuit automatique",
+                "description": "Prépare la maison pour la nuit : ambiance calme, sécurité et confort thermique.",
+                "type": "confort",
+                "related": [
+                    thermostat_salon, thermostat_chambre, climatiseur,
+                    volet, tv, enceinte, cafe,
+                ],
+                "actions": [
+                    (thermostat_salon, "set_value", 19),
+                    (thermostat_chambre, "set_value", 19),
+                    (climatiseur, "set_value", 24),
+                    (volet, "close", None),
+                    (tv, "turn_off", None),
+                    (enceinte, "turn_off", None),
+                    (cafe, "turn_off", None),
+                ],
+            },
+            {
+                "name": "Cinéma à la maison",
+                "description": "Scène cinéma complète : immersion, son, lumière et coupure des équipements parasites.",
+                "type": "divertissement",
+                "related": [tv, enceinte, volet, cafe, arrosage, thermostat_salon],
+                "actions": [
+                    (volet, "close", None),
+                    (tv, "turn_on", None),
+                    (enceinte, "turn_on", None),
+                    (thermostat_salon, "set_value", 21),
+                    (cafe, "turn_off", None),
+                    (arrosage, "turn_off", None),
+                ],
+            },
         ]
+
         created_services = {}
-        for n, d, t, dev in services:
+        for spec in services:
             svc = Service.objects.create(
-                name=n,
-                description=d,
-                type=t,
+                name=spec["name"],
+                description=spec["description"],
+                type=spec["type"],
                 created_by=users[0],
             )
-            if dev:
-                svc.related_devices.add(dev)
-            created_services[n] = svc
-
-        # Service "Mode Théâtre" réellement fonctionnel (multi-actions)
-        theatre = created_services.get("Cinéma à la maison")
-        volet = next((d for d in devices if d.type == "volet"), None)
-        tv = next((d for d in devices if d.type == "television"), None)
-        enceinte = next((d for d in devices if d.type == "enceinte"), None)
-        cafe = next((d for d in devices if d.type == "machine_cafe"), None)
-        arrosage = next((d for d in devices if d.type == "arrosage"), None)
-
-        if theatre:
-            idx = 0
-            if volet:
-                ServiceAction.objects.create(service=theatre, device=volet, action_type="close", order=idx); idx += 1
-            if tv:
-                ServiceAction.objects.create(service=theatre, device=tv, action_type="turn_on", order=idx); idx += 1
-            if enceinte:
-                ServiceAction.objects.create(service=theatre, device=enceinte, action_type="turn_on", order=idx); idx += 1
-            if cafe:
-                ServiceAction.objects.create(service=theatre, device=cafe, action_type="turn_off", order=idx); idx += 1
-            if arrosage:
-                ServiceAction.objects.create(service=theatre, device=arrosage, action_type="turn_off", order=idx)
-
-        # Services supplémentaires “utiles”
-        thermostat = next((d for d in devices if d.name == "Thermostat Salon"), None)
-        climatiseur = next((d for d in devices if d.type == "climatiseur"), None)
-        alarme = next((d for d in devices if d.type == "alarme"), None)
-
-        if thermostat and climatiseur:
-            eco = Service.objects.create(
-                name="Mode Éco Nuit",
-                description="Réduit la conso la nuit: thermostat 19°C, clim 24°C.",
-                type="energie",
-                created_by=users[0],
-            )
-            eco.related_devices.add(thermostat, climatiseur)
-            ServiceAction.objects.create(service=eco, device=thermostat, action_type="set_value", action_value=19, order=0)
-            ServiceAction.objects.create(service=eco, device=climatiseur, action_type="set_value", action_value=24, order=1)
-
-        if alarme and volet:
-            away = Service.objects.create(
-                name="Mode Absence",
-                description="Ferme volets + active l'alarme en un clic.",
-                type="securite",
-                created_by=users[0],
-            )
-            away.related_devices.add(alarme, volet)
-            ServiceAction.objects.create(service=away, device=volet, action_type="close", order=0)
-            ServiceAction.objects.create(service=away, device=alarme, action_type="turn_on", order=1)
+            svc.related_devices.add(*spec["related"])
+            for order, (dev, action_type, action_value) in enumerate(spec["actions"]):
+                ServiceAction.objects.create(
+                    service=svc,
+                    device=dev,
+                    action_type=action_type,
+                    action_value=action_value,
+                    order=order,
+                )
+            created_services[spec["name"]] = svc
 
         # --- Stats de consommation ---
         for d in devices:

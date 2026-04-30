@@ -35,8 +35,8 @@ export default function App() {
         <Route path="/devices"      element={<Devices />} />
         <Route path="/services"     element={<Services />} />
 
-        <Route path="/devices/:id"   element={<ProtectedRoute><DeviceDetail /></ProtectedRoute>} />
-        <Route path="/services/:id"  element={<ProtectedRoute><ServiceDetail /></ProtectedRoute>} />
+        <Route path="/devices/:id"   element={<DeviceDetail />} />
+        <Route path="/services/:id"  element={<ServiceDetail />} />
 
         <Route path="/dashboard"    element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/profile"      element={<ProtectedRoute><Profile /></ProtectedRoute>} />

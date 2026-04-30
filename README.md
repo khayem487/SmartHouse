@@ -1,22 +1,86 @@
-# Maison Intelligente — Plateforme Web
+# SmartHouse — Plateforme Web de Maison Intelligente
 
-Projet CY Tech ING1 2025-2026.
-Plateforme complète de gestion d'une maison intelligente : objets connectés,
-services domotiques, niveaux utilisateurs, historique, statistiques.
+Projet CY Tech ING1 (2025-2026)
 
-**Stack :** Django 5 + DRF + JWT · React 18 + Vite · SQLite · Gmail SMTP · Mobile-first.
+Application complète de gestion d’une maison connectée avec:
+- objets IoT,
+- services domotiques multi-actions,
+- authentification + vérification email OTP,
+- gestion des rôles et niveaux,
+- historique, maintenance et statistiques.
 
 ---
 
-## Lancement
+## Stack technique
 
-### 1. Backend Django
+- **Backend**: Django 5, Django REST Framework, JWT
+- **Frontend**: React 18, Vite
+- **Base**: SQLite (développement)
+- **Email OTP**: SMTP Gmail
+- **Style**: UI responsive (mobile-first)
+
+---
+
+## Fonctionnalités principales
+
+### 1) Authentification & sécurité
+- Inscription restreinte aux emails autorisés (whitelist)
+- Rôle attribué automatiquement (parent/enfant)
+- Vérification email par **code OTP 6 chiffres**
+- Connexion possible avec **pseudo ou email**
+- JWT (access/refresh)
+
+### 2) Gestion des objets connectés
+- CRUD des objets (nom, type, pièce, catégorie, état, batterie, valeurs)
+- Contrôles rapides par type d’appareil (thermostat, climatiseur, volet, etc.)
+- Règles de sécurité sur objets sensibles (alarme/caméra/porte/détecteur)
+
+### 3) Services domotiques personnalisés
+- Création de services avec plusieurs actions liées à plusieurs appareils
+- Exécution d’un service en 1 clic (ex: “Cinéma à la maison”)
+
+### 4) Gouvernance utilisateur
+- Niveaux: débutant / intermédiaire / avancé / expert
+- Points, connexions, historique des actions
+- Gestion admin des utilisateurs + whitelist via écran dédié
+
+### 5) Supervision
+- Maintenance (batterie faible / maintenance ancienne)
+- Statistiques de consommation
+- Exports CSV
+
+---
+
+## Rôles & permissions (résumé)
+
+| Action | Visiteur | Enfant | Parent (déb/inter) | Parent (avancé/expert) | Admin |
+|---|---|---|---|---|---|
+| Voir liste objets/services | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Voir détails | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Modifier profil | — | ✅ | ✅ | ✅ | ✅ |
+| Toggle objet non-sécurité | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Toggle objet sécurité | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Ajouter / modifier objet | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Demander suppression | ❌ | ❌ | ❌ | ✅ | — |
+| Maintenance / Stats | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Suppression directe | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Gérer whitelist/utilisateurs | ❌ | ❌ | ❌ | ❌ | ✅ |
+
+---
+
+## Démarrage rapide
+
+## Prérequis
+- Python 3.11+
+- Node.js 18+
+- npm 9+
+
+### 1) Backend
 
 ```powershell
 cd backend
 python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # Linux/Mac
+venv\Scripts\activate
 pip install -r requirements.txt
 python manage.py makemigrations api
 python manage.py migrate
@@ -24,11 +88,10 @@ python manage.py seed
 python manage.py runserver
 ```
 
-→ http://127.0.0.1:8000 (admin Django : http://127.0.0.1:8000/admin)
+Backend: `http://127.0.0.1:8000`
+Admin Django: `http://127.0.0.1:8000/admin`
 
-### 2. Frontend React
-
-Dans un autre terminal :
+### 2) Frontend
 
 ```powershell
 cd frontend
@@ -36,97 +99,132 @@ npm install
 npm run dev
 ```
 
-→ http://127.0.0.1:5173
+Frontend: `http://127.0.0.1:5173`
 
 ---
 
-## Inscription : qui peut s'inscrire ?
+## Comptes de démo (seed)
 
-**Seuls les emails pré-autorisés** par l'administrateur peuvent créer un compte.
-La liste est gérée via **Gestion → Gérer utilisateurs** (whitelist),
-avec fallback dans `backend/api/allowed_members.py` pour les seeds.
-Le **rôle (parent ou enfant) est attribué automatiquement** depuis cette liste — l'utilisateur ne le choisit pas.
+- `alice / demo1234`
+- `bob / demo1234`
+- `charlie / demo1234`
+- `demo / demo1234`
+- `admin / admin1234`
 
-**Visiteur** : navigue librement sans inscription (filtres, vue d'ensemble),
-mais ne peut pas voir les détails des objets/services.
-
-### Emails actuellement autorisés (pré-remplis)
-
-| Email                       | Rôle    | Compte créé ? |
-|-----------------------------|---------|---------------|
-| alice@maison.fr             | parent  | ✔ (alice/demo1234)  |
-| bob@maison.fr               | parent  | ✔ (bob/demo1234)    |
-| charlie@maison.fr           | enfant  | ✔ (charlie/demo1234)|
-| demo@maison.fr              | parent  | ✔ (demo/demo1234)   |
-| admin@maison.fr             | parent  | ✔ (admin/admin1234) |
-| acfiren12@gmail.com         | parent  | ❌ libre              |
-| famille.dupont@gmail.com    | parent  | ❌ libre              |
-| lucas.dupont@gmail.com      | enfant  | ❌ libre              |
-| marie.martin@gmail.com      | parent  | ❌ libre              |
+Emails autorisés préchargés (whitelist) :
+- `alice@maison.fr` (parent)
+- `bob@maison.fr` (parent)
+- `charlie@maison.fr` (enfant)
+- `demo@maison.fr` (parent)
+- `admin@maison.fr` (parent)
+- `acfiren12@gmail.com` (parent)
+- `famille.dupont@gmail.com` (parent)
+- `lucas.dupont@gmail.com` (enfant)
+- `marie.martin@gmail.com` (parent)
 
 ---
 
-## Permissions par rôle
+## Configuration OTP / Email (important)
 
-| Action                          | Visiteur | Enfant | Parent (déb/inter) | Parent (avancé/expert) | Admin |
-|---------------------------------|----------|--------|--------------------|------------------------|-------|
-| Voir liste objets/services      | ✔        | ✔      | ✔                  | ✔                      | ✔     |
-| Voir détails (objet/service)    | ❌       | ✔      | ✔                  | ✔                      | ✔     |
-| Modifier son profil             | -        | ✔      | ✔                  | ✔                      | ✔     |
-| Toggle objet (non-sécurité)     | ❌       | ✔      | ✔                  | ✔                      | ✔     |
-| Toggle objet sécurité (alarme,…)| ❌       | ❌     | ✔                  | ✔                      | ✔     |
-| Ajouter / Modifier objet        | ❌       | ❌     | ❌                 | ✔                      | ✔     |
-| Demander suppression objet      | ❌       | ❌     | ❌                 | ✔                      | -     |
-| Maintenance / Stats / Historique| ❌       | ❌     | ❌                 | ✔                      | ✔     |
-| Suppression directe objet       | ❌       | ❌     | ❌                 | ❌                     | ✔     |
-| Approuver/refuser demandes      | ❌       | ❌     | ❌                 | ❌                     | ✔     |
+Le backend lit `backend/.env` automatiquement.
 
-**Objets de sécurité** : alarme, caméra, porte, détecteur — réservés aux parents.
+Exemple minimal:
 
----
-
-## Niveaux et points
-
-| Niveau         | Points | Module débloqué (sauf enfants) |
-|----------------|--------|--------------------------------|
-| Débutant       | 0      | Information, Visualisation     |
-| Intermédiaire  | 5      | Information, Visualisation     |
-| Avancé         | 10     | + Gestion                      |
-| Expert         | 15     | + Gestion étendu               |
-
----
-
-## Services domotiques personnalisés
-
-- Les parents (connectés) peuvent créer des services multi-actions.
-- Exemple: mode théâtre (fermer volets + activer TV/enceinte + couper autres appareils).
-- Chaque service peut être exécuté depuis la page Services.
-
----
-
-## 📁 Structure
-
-```
-smart_home_project/
-├── backend/
-│   ├── api/
-│   │   ├── allowed_members.py   ← Liste des emails autorisés
-│   │   ├── models.py            ← User, Device, Service, Action, Stat, …
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── urls.py
-│   │   ├── admin.py
-│   │   └── management/commands/seed.py
-│   ├── smart_home/settings.py   ← Config Gmail SMTP
-│   └── manage.py
-├── frontend/
-│   └── src/
-│       ├── components/
-│       │   ├── Navbar.jsx       ← Menus déroulants
-│       │   └── ProtectedRoute.jsx
-│       └── pages/               ← 17 pages React
-└── README.md
+```env
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=true
+EMAIL_HOST_USER=your@gmail.com
+EMAIL_HOST_PASSWORD=your_16_char_app_password
+DEFAULT_FROM_EMAIL=SmartHouse <your@gmail.com>
+FRONTEND_URL=http://127.0.0.1:5173
 ```
 
+⚠️ Pour Gmail, utiliser un **mot de passe d’application** (pas le mot de passe du compte).
+
 ---
 
+## Endpoints API clés
+
+### Auth
+- `POST /api/register/`
+- `POST /api/login/`
+- `POST /api/token/refresh/`
+- `POST /api/verify-code/`
+- `POST /api/resend-verification/`
+- `GET  /api/verify/<token>/`
+
+### Profil / utilisateurs
+- `GET/PATCH /api/profile/`
+- `GET /api/users/`
+- `POST /api/change-password/`
+- `POST /api/admin/users/<id>/`
+- `DELETE /api/admin/users/<id>/delete/`
+
+### Devices / services
+- `GET/POST /api/devices/`
+- `POST /api/devices/<id>/toggle/`
+- `GET/POST /api/services/`
+- `POST /api/services/<id>/run/`
+
+### Supervision
+- `GET /api/maintenance/`
+- `GET /api/actions/me/`
+- `GET /api/actions/history/`
+- `GET /api/stats/summary/`
+- `GET /api/stats/export/devices/`
+- `GET /api/stats/export/consumption/`
+
+---
+
+## Structure du projet
+
+```text
+SmartHouse/
+├─ backend/
+│  ├─ api/
+│  │  ├─ models.py
+│  │  ├─ serializers.py
+│  │  ├─ views.py
+│  │  ├─ urls.py
+│  │  ├─ scenario_engine.py
+│  │  └─ management/commands/seed.py
+│  ├─ smart_home/settings.py
+│  └─ manage.py
+└─ frontend/
+   └─ src/
+      ├─ components/
+      └─ pages/
+```
+
+---
+
+## Dépannage rapide
+
+### OTP non reçu
+1. Vérifier `backend/.env`
+2. Vérifier `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD`
+3. Relancer le backend après changement `.env`
+4. Utiliser “Renvoyer le code” dans l’inscription
+
+### Whitelist vide
+- Lancer:
+```powershell
+python manage.py migrate
+python manage.py seed
+```
+
+### Erreurs après pull
+- Refaire:
+```powershell
+python manage.py makemigrations api
+python manage.py migrate
+```
+
+---
+
+## Notes
+
+- Ce README documente l’état actuel de la branche principale.
+- Les choix de design/architecture peuvent évoluer avec les itérations du projet.

@@ -331,7 +331,8 @@ class DeviceViewSet(viewsets.ModelViewSet):
     serializer_class = DeviceSerializer
 
     def get_permissions(self):
-        if self.action == "list": return [AllowAny()]
+        if self.action in ("list", "retrieve"):
+            return [AllowAny()]
         return [IsAuthenticated()]
 
     def get_queryset(self):
@@ -351,11 +352,12 @@ class DeviceViewSet(viewsets.ModelViewSet):
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         u = request.user
-        u.points = (u.points or 0) + 0.5
-        u.nb_actions = (u.nb_actions or 0) + 1
-        u.save()
-        Action.objects.create(user=u, action_type="consult", device=instance,
-                              description=f"Consultation de {instance.name}")
+        if getattr(u, "is_authenticated", False):
+            u.points = (u.points or 0) + 0.5
+            u.nb_actions = (u.nb_actions or 0) + 1
+            u.save()
+            Action.objects.create(user=u, action_type="consult", device=instance,
+                                  description=f"Consultation de {instance.name}")
         return Response(self.get_serializer(instance).data)
 
     def perform_create(self, serializer):
@@ -554,13 +556,18 @@ class ServiceViewSet(viewsets.ModelViewSet):
     serializer_class = ServiceSerializer
 
     def get_permissions(self):
-        if self.action == "list": return [AllowAny()]
+        if self.action in ("list", "retrieve"):
+            return [AllowAny()]
         return [IsAuthenticated()]
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        # Un service doit être utile : au moins une action OU au moins un objet lié.
+        qs = super().get_queryset().filter(
+            Q(actions__isnull=False) | Q(related_devices__isnull=False)
+        ).distinct()
         p = self.request.query_params
-        if p.get("type"):   qs = qs.filter(type=p["type"])
+        if p.get("type"):
+            qs = qs.filter(type=p["type"])
         if p.get("active") is not None and p.get("active") != "":
             qs = qs.filter(active=(p["active"].lower() == "true"))
         if p.get("q"):
@@ -633,6 +640,48 @@ class ServiceViewSet(viewsets.ModelViewSet):
         Action.objects.create(user=request.user, action_type="update",
                               description=f"Service modifié : {updated.name}")
         return Response(self.get_serializer(updated).data)
+
+    @action(detail=True, methods=["post"], url_path="toggle")
+    def toggle(self, request, pk=None):
+        """Active ou désactive tous les objets liés au service.
+        Body : { "action": "on" } ou { "action": "off" }"""
+        service = self.get_object()
+        target = request.data.get("action")
+        if target not in ("on", "off"):
+            return Response({"detail": "Paramètre 'action' invalide ('on' ou 'off')."}, status=400)
+
+        if request.user.is_child() and service.has_security_device():
+            return Response({
+                "detail": "Ce service contient des objets de sécurité. Réservé aux parents."
+            }, status=403)
+
+        devices = list(service.related_devices.all())
+        if not devices:
+            return Response({"detail": "Aucun objet lié à ce service."}, status=400)
+
+        updated = []
+        for d in devices:
+            if request.user.is_child() and d.type in {"alarme", "camera", "porte", "detecteur"}:
+                continue
+            d.status = target
+            d.save()
+            updated.append(d.name)
+
+        request.user.nb_actions = (request.user.nb_actions or 0) + 1
+        request.user.save(update_fields=["nb_actions"])
+        action_label = "activé" if target == "on" else "désactivé"
+        Action.objects.create(
+            user=request.user,
+            action_type="toggle",
+            description=f"Service '{service.name}' {action_label} ({len(updated)} objet(s) modifié(s))",
+        )
+
+        return Response({
+            "detail": f"Service « {service.name} » {action_label}. {len(updated)} objet(s) modifié(s).",
+            "action": target,
+            "devices_updated": updated,
+            "service": ServiceSerializer(service).data,
+        })
 
     @action(detail=True, methods=["post"], url_path="run")
     def run(self, request, pk=None):

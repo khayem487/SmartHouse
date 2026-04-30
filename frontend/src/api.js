@@ -4,9 +4,30 @@ export const API_URL = "http://127.0.0.1:8000/api";
 
 const API = axios.create({ baseURL: API_URL });
 
+const PUBLIC_ENDPOINTS = ["/devices", "/rooms", "/categories", "/services"];
+const READ_ONLY_METHODS = new Set(["get", "head", "options"]);
+
+function shouldSkipAuth(url = "", method = "get") {
+  // On ne skip l'auth QUE pour les lectures publiques.
+  // Les actions (POST/PATCH/DELETE...) doivent toujours envoyer le token.
+  if (!READ_ONLY_METHODS.has(String(method || "get").toLowerCase())) {
+    return false;
+  }
+  try {
+    const u = /^https?:\/\//i.test(url) ? new URL(url) : new URL(url, API_URL);
+    const path = u.pathname || "";
+    const search = u.search || "";
+    return PUBLIC_ENDPOINTS.some((p) => path === p || path.startsWith(`${p}/`) || `${path}${search}`.startsWith(`${p}?`));
+  } catch {
+    return PUBLIC_ENDPOINTS.some((p) => url === p || url.startsWith(`${p}/`) || url.startsWith(`${p}?`) || url.includes(`${p}/`) || url.includes(`${p}?`));
+  }
+}
+
 API.interceptors.request.use((config) => {
   const token = localStorage.getItem("access");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (token && !shouldSkipAuth(config.url || "", config.method || "get")) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 });
 

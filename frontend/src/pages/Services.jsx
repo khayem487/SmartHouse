@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import API, { getUser, isLoggedIn } from "../api";
 
 const TYPES = [
@@ -19,37 +19,34 @@ const ACTION_TYPES = [
   ["close", "Fermer (volet)"],
 ];
 
-const ICONS = {
-  energie: "⚡", securite: "🔒", confort: "🛋", divertissement: "📺", sante: "❤",
-};
-
 const emptyAction = { device: "", action_type: "turn_off", action_value: "", order: 0 };
 
 export default function Services() {
+  const nav = useNavigate();
   const [services, setServices] = useState([]);
   const [devices, setDevices] = useState([]);
   const [filters, setFilters] = useState({ type: "", active: "", q: "" });
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const user = getUser();
-  const logged = isLoggedIn();
-  const canManage = logged && user?.role !== "enfant";
-
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     name: "",
     description: "",
     type: "confort",
     active: true,
+    related_devices: [],
     actions: [{ ...emptyAction }],
   });
+
+  const logged = isLoggedIn();
+  const user = getUser();
+  const canCreate = logged && user?.role !== "enfant";
 
   const loadServices = async () => {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([k, v]) => v !== "" && params.append(k, v));
-    const { data } = await API.get("/services/?" + params.toString());
-    setServices(data);
+    const r = await API.get("/services/?" + params.toString());
+    setServices(r.data);
   };
 
   useEffect(() => {
@@ -57,11 +54,28 @@ export default function Services() {
   }, [filters]);
 
   useEffect(() => {
-    if (!canManage) return;
-    API.get("/devices/").then((r) => setDevices(r.data)).catch(() => {});
-  }, [canManage]);
+    if (!canCreate) return;
+    API.get("/devices/")
+      .then((r) => setDevices(r.data))
+      .catch(() => setDevices([]));
+  }, [canCreate]);
+
+  const deviceMap = useMemo(() => {
+    const m = new Map();
+    devices.forEach((d) => m.set(d.id, d));
+    return m;
+  }, [devices]);
 
   const set = (k, v) => setFilters({ ...filters, [k]: v });
+
+  const handleClick = (id) => {
+    nav(`/services/${id}`);
+  };
+
+  const onDeviceSelect = (e) => {
+    const vals = Array.from(e.target.selectedOptions).map((opt) => Number(opt.value));
+    setForm((prev) => ({ ...prev, related_devices: vals }));
+  };
 
   const addAction = () => {
     setForm((prev) => ({
@@ -88,50 +102,155 @@ export default function Services() {
     e.preventDefault();
     setError("");
     setMsg("");
-    setLoading(true);
+    setSaving(true);
     try {
-      const payload = {
-        ...form,
-        related_devices: [...new Set(form.actions.filter((a) => a.device).map((a) => Number(a.device)))],
-        actions: form.actions
-          .filter((a) => a.device && a.action_type)
-          .map((a, i) => ({
-            device: Number(a.device),
-            action_type: a.action_type,
-            action_value: a.action_type === "set_value" && a.action_value !== "" ? Number(a.action_value) : null,
-            order: i,
-          })),
-      };
-      await API.post("/services/", payload);
-      setMsg("Service créé ✔");
-      setForm({ name: "", description: "", type: "confort", active: true, actions: [{ ...emptyAction }] });
-      await loadServices();
-    } catch (err) {
-      setError(err.response?.data?.detail || "Erreur lors de la création du service.");
-    } finally {
-      setLoading(false);
-    }
-  };
+      const actionPayload = form.actions
+        .filter((a) => a.device && a.action_type)
+        .map((a, i) => ({
+          device: Number(a.device),
+          action_type: a.action_type,
+          action_value: a.action_type === "set_value" && a.action_value !== "" ? Number(a.action_value) : null,
+          order: i,
+        }));
 
-  const runService = async (id) => {
-    setError("");
-    setMsg("");
-    try {
-      const { data } = await API.post(`/services/${id}/run/`);
-      setMsg(data?.detail || "Service exécuté ✔");
+      const fromActions = [...new Set(actionPayload.map((a) => a.device))];
+      const linked = fromActions.length > 0 ? fromActions : form.related_devices;
+
+      await API.post("/services/", {
+        name: form.name,
+        description: form.description,
+        type: form.type,
+        active: form.active,
+        related_devices: linked,
+        actions: actionPayload,
+      });
+
+      setMsg("Service détaillé ajouté ✔");
+      setForm({
+        name: "",
+        description: "",
+        type: "confort",
+        active: true,
+        related_devices: [],
+        actions: [{ ...emptyAction }],
+      });
       await loadServices();
     } catch (err) {
-      setError(err.response?.data?.detail || "Impossible d'exécuter ce service.");
+      setError(err.response?.data?.detail || "Impossible d'ajouter le service.");
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
     <main className="container" id="main">
-      <h1>Services & automatisations</h1>
-      <p className="muted-text">Crée un mode personnalisé (ex: théâtre) avec plusieurs actions en un clic.</p>
+      <h1>Services & outils SmartHouse</h1>
+      <p>
+        Chaque service peut contenir plusieurs objets et des actions détaillées (on/off, valeur, ouverture/fermeture).
+      </p>
+
+      {!logged && (
+        <div className="alert info">
+          Vous êtes en mode visiteur. Vous pouvez consulter les détails; <Link to="/login">connectez-vous</Link> pour exécuter/créer des services.
+        </div>
+      )}
 
       {msg && <div className="alert success">{msg}</div>}
       {error && <div className="alert error">{error}</div>}
+
+      {canCreate && (
+        <form className="form form-wide" onSubmit={createService}>
+          <h2>Ajouter un service détaillé</h2>
+          <label>Nom</label>
+          <input
+            value={form.name}
+            onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+            required
+          />
+
+          <label>Description</label>
+          <textarea
+            value={form.description}
+            onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+            required
+          />
+
+          <label>Type</label>
+          <select value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))}>
+            {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+
+          <label>Objets liés (optionnel si actions configurées)</label>
+          <select multiple value={form.related_devices.map(String)} onChange={onDeviceSelect} style={{ minHeight: 120 }}>
+            {devices.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+
+          <h3 style={{ marginTop: "1rem" }}>Actions détaillées</h3>
+          {form.actions.map((a, idx) => {
+            const selectedDevice = a.device ? deviceMap.get(Number(a.device)) : null;
+            const isVolet = selectedDevice?.type === "volet";
+            return (
+              <div key={idx} className="card" style={{ marginBottom: "0.8rem" }}>
+                <p><strong>Action {idx + 1}</strong></p>
+                <label>Objet</label>
+                <select
+                  value={a.device}
+                  onChange={(e) => updateAction(idx, "device", e.target.value)}
+                  required
+                >
+                  <option value="">Choisir un objet…</option>
+                  {devices.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+
+                <label>Commande</label>
+                <select
+                  value={a.action_type}
+                  onChange={(e) => updateAction(idx, "action_type", e.target.value)}
+                >
+                  {ACTION_TYPES.filter(([v]) => isVolet || !["open", "close"].includes(v)).map(([v, l]) => (
+                    <option key={v} value={v}>{l}</option>
+                  ))}
+                </select>
+
+                {a.action_type === "set_value" && (
+                  <>
+                    <label>Valeur</label>
+                    <input
+                      type="number"
+                      value={a.action_value}
+                      onChange={(e) => updateAction(idx, "action_value", e.target.value)}
+                      required
+                    />
+                  </>
+                )}
+
+                {form.actions.length > 1 && (
+                  <button className="btn danger" type="button" onClick={() => removeAction(idx)}>
+                    Supprimer cette action
+                  </button>
+                )}
+              </div>
+            );
+          })}
+
+          <button className="btn secondary" type="button" onClick={addAction}>+ Ajouter une action</button>
+
+          <label>
+            <input
+              type="checkbox"
+              checked={form.active}
+              onChange={(e) => setForm((p) => ({ ...p, active: e.target.checked }))}
+            />{" "}
+            Service actif
+          </label>
+
+          <button type="submit" disabled={saving}>{saving ? "Ajout..." : "Ajouter le service"}</button>
+        </form>
+      )}
 
       <section aria-label="Filtres">
         <div className="filters">
@@ -150,80 +269,30 @@ export default function Services() {
         </div>
       </section>
 
-      {canManage && (
-        <form className="form form-wide service-builder" onSubmit={createService}>
-          <h2>Créer un service personnalisé</h2>
-          <label>Nom</label>
-          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-
-          <label>Description</label>
-          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required />
-
-          <label>Type</label>
-          <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-            {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-
-          <h3 className="mt-1">Actions du service</h3>
-          {form.actions.map((a, idx) => (
-            <div key={idx} className="service-action-row">
-              <p className="service-action-title">Action {idx + 1}</p>
-              <label>Objet</label>
-              <select value={a.device} onChange={(e) => updateAction(idx, "device", e.target.value)} required>
-                <option value="">Choisir un objet…</option>
-                {devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-
-              <label>Action</label>
-              <select value={a.action_type} onChange={(e) => updateAction(idx, "action_type", e.target.value)}>
-                {ACTION_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-
-              {a.action_type === "set_value" && (
-                <>
-                  <label>Valeur</label>
-                  <input type="number" value={a.action_value}
-                         onChange={(e) => updateAction(idx, "action_value", e.target.value)} required />
-                </>
-              )}
-
-              {form.actions.length > 1 && (
-                <button className="btn danger" type="button" onClick={() => removeAction(idx)}>Supprimer action</button>
-              )}
-            </div>
-          ))}
-
-          <button className="btn secondary" type="button" onClick={addAction}>+ Ajouter une action</button>
-          <button type="submit" disabled={loading}>{loading ? "Création..." : "Créer le service"}</button>
-        </form>
-      )}
-
-      {!canManage && logged && user?.role === "enfant" && (
-        <div className="alert info">Le mode enfant peut consulter les services mais ne peut pas en créer.</div>
-      )}
-
-      <p className="muted-text"><strong>{services.length}</strong> service(s) trouvé(s)</p>
+      <p><strong>{services.length}</strong> service(s) trouvé(s)</p>
 
       <div className="cards">
-        {services.map((s) => (
-          <div key={s.id} className="card">
-            <p className="icon" aria-hidden="true">{ICONS[s.type] || "🔧"}</p>
-            <h3>{s.name}</h3>
-            <p>{s.description.slice(0, 100)}{s.description.length > 100 ? "…" : ""}</p>
-            <p><strong>Type :</strong> {s.type_display}</p>
-            <p><strong>Actions :</strong> {s.actions?.length || 0}</p>
-            {Array.isArray(s.related_device_names) && s.related_device_names.length > 0 && (
-              <p><strong>Objets :</strong> {s.related_device_names.join(", ")}</p>
-            )}
-            <span className={"badge " + (s.active ? "on" : "off")}>{s.active ? "Actif" : "Inactif"}</span>
-            <div className="action-row">
-              <Link className="btn ghost" to={`/services/${s.id}`}>Détails</Link>
-              {canManage && (
-                <button className="btn" onClick={() => runService(s.id)} type="button">Exécuter</button>
-              )}
-            </div>
-          </div>
-        ))}
+        {services.map((s) => {
+          const nbDevices = s.related_devices_info?.length || 0;
+          const nbActions = s.actions?.length || 0;
+          return (
+            <article key={s.id} className="card"
+                     role="button" tabIndex={0}
+                     style={{ cursor: "pointer" }}
+                     onClick={() => handleClick(s.id)}
+                     onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleClick(s.id)}
+                     aria-label={`Voir ${s.name}`}>
+              <h3>{s.name}</h3>
+              <p>{s.description.slice(0, 100)}{s.description.length > 100 ? "…" : ""}</p>
+              <p><strong>Type :</strong> {s.type_display}</p>
+              <p><strong>Objets liés :</strong> {nbDevices}</p>
+              <p><strong>Actions :</strong> {nbActions}</p>
+              <span className={"badge " + (s.all_devices_on ? "on" : "off")}>
+                {nbDevices === 0 ? "Aucun objet" : (s.all_devices_on ? "Tous actifs" : "Inactif / partiel")}
+              </span>
+            </article>
+          );
+        })}
       </div>
     </main>
   );

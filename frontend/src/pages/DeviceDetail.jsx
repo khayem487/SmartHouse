@@ -18,7 +18,14 @@ export default function DeviceDetail() {
 
   const load = () => API.get(`/devices/${id}/`)
     .then((r) => setD(r.data))
-    .catch(() => setError("Objet introuvable."));
+    .catch((err) => {
+      if (err?.response?.status === 401) {
+        setError("Session expirée. Reconnecte-toi.");
+        setTimeout(() => nav("/login"), 300);
+        return;
+      }
+      setError("Objet introuvable.");
+    });
 
   useEffect(() => { load(); }, [id]);
 
@@ -159,13 +166,7 @@ export default function DeviceDetail() {
       );
     }
 
-    return (
-      <div className="action-row">
-        <button className="btn" onClick={toggle} disabled={busy || childCannotToggle}>
-          {d.status === "on" ? "⏻ Désactiver" : "⏼ Activer"}
-        </button>
-      </div>
-    );
+    return null;
   };
 
   return (
@@ -202,6 +203,12 @@ export default function DeviceDetail() {
           <>
             <h3 className="mt-1">Commandes rapides</h3>
             {renderSmartControls()}
+
+            <div className="action-row">
+              <button className="btn" onClick={toggle} disabled={busy || childCannotToggle}>
+                {d.status === "on" ? "⏻ Désactiver" : "⏼ Activer"}
+              </button>
+            </div>
 
             <div className="action-row">
               <Link to={`/devices/${id}/edit`} className="btn secondary">✎ Modifier</Link>

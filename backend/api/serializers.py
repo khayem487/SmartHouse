@@ -124,13 +124,17 @@ class ServiceSerializer(serializers.ModelSerializer):
     related_devices = serializers.PrimaryKeyRelatedField(queryset=Device.objects.all(), many=True, required=False)
     related_device = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     related_device_names = serializers.SerializerMethodField()
+    related_devices_info = serializers.SerializerMethodField()
+    has_security_device = serializers.BooleanField(read_only=True)
+    all_devices_on = serializers.SerializerMethodField()
     created_by_name = serializers.CharField(source="created_by.username", read_only=True)
 
     class Meta:
         model = Service
         fields = ("id", "name", "description", "type", "type_display",
-                  "related_device", "related_devices", "related_device_names", "active",
-                  "created_by", "created_by_name", "actions", "created_at")
+                  "related_device", "related_devices", "related_device_names", "related_devices_info",
+                  "has_security_device", "all_devices_on",
+                  "active", "created_by", "created_by_name", "actions", "created_at")
         read_only_fields = ("created_by", "created_at")
 
     def get_actions(self, obj):
@@ -138,6 +142,22 @@ class ServiceSerializer(serializers.ModelSerializer):
 
     def get_related_device_names(self, obj):
         return [d.name for d in obj.related_devices.all()]
+
+    def get_related_devices_info(self, obj):
+        return [{
+            "id": d.id,
+            "name": d.name,
+            "type_display": d.get_type_display(),
+            "status": d.status,
+            "status_display": d.get_status_display(),
+            "is_security": d.type in {"alarme", "camera", "porte", "detecteur"},
+        } for d in obj.related_devices.all()]
+
+    def get_all_devices_on(self, obj):
+        devices = obj.related_devices.all()
+        if not devices.exists():
+            return False
+        return all(d.status == "on" for d in devices)
 
     def validate(self, attrs):
         single = attrs.pop("related_device", None)
